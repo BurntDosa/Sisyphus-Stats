@@ -1,288 +1,249 @@
-# Sisyphus' Daily Data
+<p align="center">
+  <img src="dashboard/web/public/assets/SisyphusStats.png" alt="Sisyphus Stats artwork" width="100%" />
+</p>
 
-Sisyphus is a Discord bot for a friend server that follows ranked League of
-Legends Solo/Duo games, turns them into readable recaps, and adds a few rituals
-around the climb.
+<p align="center">
+  <img src="dashboard/web/public/assets/Sisyphus-Favicon.png" alt="Sisyphus emblem" width="88" />
+</p>
 
-The bot is intentionally server-first. It is not trying to be OP.GG inside
-Discord, and it is not trying to scout enemies or shame players. It watches the
-people the server cares about, posts useful post-game context, keeps daily and
-weekly memory, and lets friends make the grind a little more social.
+<h1 align="center">Sisyphus</h1>
 
-## What The Bot Does
+<p align="center">
+  A Discord bot for a League of Legends squad. It tracks ranked Solo/Duo games and records the climb.
+</p>
 
-When a tracked player finishes a ranked Solo/Duo game, Sisyphus posts a match
-recap with the same core data people already look for:
+<p align="center">
+  <a href="https://github.com/BurntDosa/Sisyphus-Stats"><img src="https://img.shields.io/badge/source-public%20mirror-A0283B?style=for-the-badge" alt="Public source mirror" /></a>
+  <img src="https://img.shields.io/badge/Python-3.11%2B-221A17?style=for-the-badge" alt="Python 3.11 or later" />
+  <img src="https://img.shields.io/badge/Discord-guild%20bot-5865F2?style=for-the-badge" alt="Discord guild bot" />
+  <a href="https://sisyphus.burntdosa.site"><img src="https://img.shields.io/badge/dashboard-private-496B55?style=for-the-badge" alt="Private dashboard" /></a>
+</p>
 
-- result, champion, role, duration, rank, LP, and LP change
-- KDA, CS/min, damage, vision, gold, level, items, and team score
-- kill participation, damage share, and gold share when available
-- buttons for overview, blue team, red team, and the full scoreboard
+<p align="center">
+  <a href="#quick-start">Quick start</a> |
+  <a href="#what-sisyphus-records">Features</a> |
+  <a href="#commands">Commands</a> |
+  <a href="#private-dashboard">Dashboard</a> |
+  <a href="#development">Development</a>
+</p>
 
-Short remakes are treated as draws. Betting markets for remakes are voided and
-all points are refunded.
+<p align="center"><strong>Track matches. Read recaps. Keep the record.</strong></p>
 
-The bot also posts a daily report at 00:05 IST for the day that just ended.
-Daily reports summarize games played, wins/losses/draws, net LP, previous LP,
-current LP, and the player's recent ranked history.
+---
 
-## Server Rituals
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Match record</h3>
+      <p>Read ranked Solo/Duo recaps with LP, KDA, CS per minute, vision, items, and team scores.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>Squad record</h3>
+      <p>Use Live Game Room, Queue Board, recaps, rivalries, goals, and the Boulder Archive.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Player record</h3>
+      <p>Follow rank changes, role and champion history, saved memories, and recent match form.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>Private analytics</h3>
+      <p>Sign in with Discord to view player, points-market, and community data in the dashboard.</p>
+    </td>
+  </tr>
+</table>
 
-Sisyphus has a small community layer for ranked Solo/Duo:
+<p align="center">
+  <img src="dashboard/web/public/assets/ranks/emblem-bronze.png" alt="Bronze rank emblem" width="72" />
+  <img src="dashboard/web/public/assets/ranks/emblem-silver.png" alt="Silver rank emblem" width="72" />
+  <img src="dashboard/web/public/assets/ranks/emblem-gold.png" alt="Gold rank emblem" width="72" />
+  <img src="dashboard/web/public/assets/ranks/emblem-platinum.png" alt="Platinum rank emblem" width="72" />
+  <img src="dashboard/web/public/assets/ranks/emblem-emerald.png" alt="Emerald rank emblem" width="72" />
+  <img src="dashboard/web/public/assets/ranks/emblem-diamond.png" alt="Diamond rank emblem" width="72" />
+</p>
 
-- Queue Beacon announces when tracked friends enter a ranked game.
-- The bot status cycles through live tracked players as
-  `<player> is pushing the boulder`.
-- Queue Board lets people say they are looking for ranked Solo/Duo.
-- Weekly Squad Recap highlights positive server-wide moments.
-- Squad Goals track weekly group goals like wins, games, unique champions, and
-  positive LP days.
-- Opt-in Rivalries let two linked users compare weekly ranked LP, wins, and
-  games after both agree.
-- Boulder Archive keeps server records such as best damage, KDA, vision, CS/min,
-  fastest win, longest win, and biggest LP gain.
+---
 
-These features only use ranked Solo/Duo history. ARAM, Flex, normals, remakes,
-and non-ranked queues are ignored for community records.
+## What Sisyphus Does
 
-## Points Markets
+Sisyphus watches tracked Riot accounts for ranked Solo/Duo matches. It posts a recap after each new game.
 
-The bot can also run fake-points markets for tracked ranked games when
-`BETTING_ENABLED=true`.
+Each recap can show the result, champion, role, duration, rank, and LP change.
 
-Markets open when tracked players enter ranked Solo/Duo, lock shortly after,
-and settle when the game result is known. Users can bet on win/loss with server
-points, use a weekly insurance token on normal bets, or press all-in to stake
-their full available balance. All-in bets cannot use insurance.
+It can also show KDA, CS per minute, damage, vision, gold, items, and team score.
 
-This is fake server currency only.
+The bot keeps daily LP history and shared server records. It ignores ARAM, Flex, normal games, and other queues.
 
-## Requirements
+It also gives the squad a private dashboard. The dashboard shows player journeys, recent form, points markets, and community records.
 
-- Python 3.11+
-- `uv`
-- a Discord bot token with Message Content Intent enabled
-- OP.GG MCP endpoint, usually `https://mcp-api.op.gg/mcp`
-- Riot API key for live-game detection and small enrichments such as champion
-  mastery
+## What Sisyphus Records
 
-## Setup
+| Area | Sisyphus records |
+| --- | --- |
+| Match recaps | Result, champion, role, duration, rank, LP, KDA, CS per minute, vision, damage, gold, items, and scores. |
+| Player history | Ranked Solo/Duo matches, daily LP points, current rank, peak rank, role, champion pool, and saved memories. |
+| Squad history | Daily reports, weekly recaps, monthly recaps, rivalries, squad goals, and Boulder Archive records. |
+| Live game room | Queue Beacon updates, linked-player notices, stream state, and watch intent. |
+| Points markets | Wallets, open markets, bets, settlements, refunds, insurance, and leaderboards. This uses fake server points only. |
+| Service health | Bot availability, Discord gateway state, polling freshness, Riot live-game checks, OP.GG match data, and points-market health. |
 
-Install dependencies:
+## Highlights
+
+### Match Recaps
+
+Sisyphus posts one recap for each new ranked Solo/Duo match. Use the recap buttons to read the match overview, blue team, red team, or full scoreboard.
+
+Games shorter than two minutes count as remakes. Sisyphus records them as draws and voids linked points markets.
+
+### Player Journeys
+
+`/profile` shows Sisyphus-observed ranked history. It includes Overview, Journey, Identity, Records, and Memories pages.
+
+Linked players can save a personal note on a recap. The note becomes a match memory.
+
+### Squad Rituals
+
+Queue Beacon acts as a Live Game Room. It updates one message as a tracked player enters and leaves a ranked game.
+
+The Queue Board helps members find ranked Solo/Duo partners. Weekly and monthly recaps give the server a clear record of its progress.
+
+### Points Markets
+
+Sisyphus can open fake-points markets for tracked ranked games. Members can place win or loss bets before a market locks.
+
+Members can edit or cancel a bet before lock. They can also use a weekly insurance token on a normal bet.
+
+All-in bets use the full available wallet balance. All-in bets cannot use insurance.
+
+## Quick Start
+
+### 1. Get the source
+
+```bash
+git clone https://github.com/BurntDosa/Sisyphus-Stats.git
+cd Sisyphus-Stats
+```
+
+### 2. Install the Python environment
 
 ```bash
 uv sync
 ```
 
-Create `.env`:
+### 3. Create the private configuration file
 
 ```bash
 cp env.example_v2 .env
 ```
 
-Important variables:
+Set the required values in `.env`.
 
-```dotenv
-DISCORD_TOKEN=your_discord_bot_token
-THREAD_ID=discord_thread_id
-CHANNEL_ID=discord_channel_id
-OPGG_MCP_URL=https://mcp-api.op.gg/mcp
-OPGG_REGION=SEA
-RIOT_KEY=RGAPI-your_key
-PLATFORM=sg2
-RIOT_PLATFORMS=sg2
-REGION=sea
-ADMIN_IDS=your_discord_user_id
-DEVELOPER_DISCORD_ID=your_discord_user_id
-MARKET_ROLE_ID=your_discord_role_id
-BETTING_ENABLED=true
-```
+| Variable | Purpose |
+| --- | --- |
+| `DISCORD_TOKEN` | The Discord bot token. Enable Message Content Intent for this bot. |
+| `THREAD_ID` or `CHANNEL_ID` | The Discord thread or channel that receives posts. `THREAD_ID` has priority. |
+| `GUILD_ID` | The Discord server ID for guild-local commands. |
+| `ADMIN_IDS` | A comma-separated list of Discord user IDs that can use admin commands. |
+| `RIOT_KEY` | The Riot API key for live-game checks. |
+| `OPGG_MCP_URL` and `OPGG_REGION` | The OP.GG MCP endpoint and the region for match data. |
 
-`THREAD_ID` wins over `CHANNEL_ID` when both are set.
+Use `env.example_v2` for the complete configuration list. Never commit `.env`, `data.json`, push URLs, or SSH keys.
 
-Optional integrations:
-
-```dotenv
-MISTRAL_API_KEY=your_mistral_key
-MISTRAL_MODEL=mistral-small-latest
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-TELEGRAM_CHAT_ID=your_telegram_chat_id
-TELEGRAM_POLLING_ENABLED=false
-RIOT_KEY_DAILY_REMINDER_ENABLED=false
-```
-
-Mistral is used for startup release-note summaries. Telegram polling and the old
-daily Riot key reminder are off by default.
-
-## Run
+### 4. Start the bot
 
 ```bash
 uv run python -m sisyphus
 ```
 
-The bot can also run from an existing virtualenv:
+The bot creates or updates `data.json` in the project root. This file is the private runtime state.
 
-```bash
-.venv/bin/python -m sisyphus
-```
+Before you change or restore this file, make a timestamped backup. Do not commit it.
 
-`data.json` lives in the project root. It stores tracked players, links, match
-history, daily LP snapshots, community records, betting wallets, markets, audit
-logs, and changelog state. It is git-ignored and should be preserved across
-restarts.
+## Commands
 
-## Common Commands
+Most commands work as Discord slash commands and with the `!` prefix.
 
-Most commands work as slash commands and as `!` prefix commands.
+| Group | Commands | Use |
+| --- | --- | --- |
+| Start here | `/help`, `/status`, `/dashboard` | Show the command guide, service health, or the private dashboard link. |
+| Track players | `/track`, `/untrack`, `/list`, `/link`, `/unlink`, `/whoami` | Track Riot accounts and link Discord members to tracked accounts. |
+| Read matches | `/recap`, `/stats`, `/profile`, `/dailyreport`, `/report` | Read recaps, rank data, player history, daily reports, or submit a report. |
+| Squad tools | `/queueup`, `/queueboard`, `/queueclear`, `/weeklyrecap`, `/monthlyrecap`, `/halloffame`, `/squadgoal`, `/rivalry` | Run the shared ranked queue and record squad progress. |
+| Points markets | `/markets`, `/bet`, `/editbet`, `/cancelbet`, `/mybets`, `/wallet`, `/leaderboard`, `/bprofile`, `/insurance` | Use fake-points markets and wallet tools. |
+| Admin tools | `/marketopen`, `/marketstatus`, `/marketbets`, `/settlebet`, `/voidbet`, `/refund`, `/audit` | Manage points markets and audit their changes. |
 
-Tracking:
+Use `/help` in Discord for command arguments and current access rules.
 
-- `/track GameName#TAG`
-- `/untrack GameName#TAG`
-- `/list`
-- `/link GameName#TAG`
-- `/unlink`
-- `/whoami`
+## Private Dashboard
 
-Reports:
+The dashboard runs at [sisyphus.burntdosa.site](https://sisyphus.burntdosa.site).
 
-- `/recap [GameName#TAG or @user]`
-- `/stats [GameName#TAG or @user]`
-- `/profile [GameName#TAG or @user]`
-- `/dailyreport [GameName#TAG or @user]`
-- `/report`
-- `/status`
-- `/dashboard`
-- `/help`
+Members sign in through Discord. The dashboard checks that each user belongs to the configured Discord server.
 
-Community:
+The dashboard has four views:
 
-- `/queueup [note]`
-- `/queueboard`
-- `/queueclear`
-- `/weeklyrecap`
-- `/monthlyrecap [YYYY-MM]` (admin)
-- `/halloffame`
-- `/squadgoal`
-- `/squadgoal set <wins|games|positive_lp_days|unique_champions|streak> [target]`
-- `/rivalry challenge @user`
-- `/rivalry accept @user`
-- `/rivalry end @user`
+| View | Shows |
+| --- | --- |
+| Overview | Squad LP lines, recent form, activity, and headline records. |
+| Players | Player rank, LP history, match form, champions, roles, and match records. |
+| Betting | Wallet leaderboards, market volume, outcomes, markets, and bet results. |
+| Community | Records, milestones, memories, recap notes, and squad-goal progress. |
 
-Points markets:
+The dashboard loads a new export every five minutes. Members can also refresh it manually.
 
-- `/markets`
-- `/bet <market_id> WIN|LOSE <stake> [insurance]`
-- `/editbet <market_id> WIN|LOSE <stake> [insurance]`
-- `/cancelbet <market_id>`
-- `/mybets`
-- `/wallet [@user]`
-- `/leaderboard [metric] [range]`
-- `/bprofile [@user]`
-- `/insurance [@user]`
+The Mac keeps the source `data.json`. A local export task sends a selected, sanitized data set to the dashboard server.
 
-Admin-only betting tools include `/marketopen`, `/marketstatus`, `/marketbets`,
-`/settlebet`, `/voidbet`, `/refund`, and `/audit`.
+The export excludes PUUIDs, Discord IDs, channel and message IDs, reports, audit actors, recap links, secrets, and raw `data.json`.
 
-## v2 Discord UX
+## Service Status
 
-Queue Beacon now acts as a Live Game Room: one message is posted when a tracked
-ranked Solo/Duo game starts, pings linked tracked players in normal message
-content, and edits in place as stream status, voice-channel watchers, and
-watcher betting intent change.
+`/status` and `!status` show the current service state in Discord.
 
-`/profile` is now the Sisyphus-observed player profile with Overview, Journey,
-Identity, Records, and Memories pages. The old betting profile moved to
-`/bprofile`. Fresh recap cards include a Remember button so the linked player
-can name and save personally meaningful matches.
+The bot writes a private health snapshot. A separate macOS task sends outbound heartbeats to Uptime Kuma.
 
-Monthly recaps run at 06:00 IST on the 1st of each month for the month that just
-ended. They post a public server recap and DM eligible linked players who had at
-least one tracked ranked Solo/Duo game that month.
+The status checks cover bot availability, Discord, ranked polling, Riot live-game detection, OP.GG match data, and points markets.
 
-## v2.1 Service Status
+Set `STATUS_PAGE_ENABLED=true` only after you configure all required Uptime Kuma push URLs. Treat every push URL as a secret.
 
-Sisyphus writes a private service-health snapshot to
-`.automation/status-health.json`. An independent macOS LaunchAgent publishes
-outbound heartbeats to Uptime Kuma for bot availability, Discord connectivity,
-ranked polling, Riot live detection, OP.GG match data, and points markets.
+## Region Settings
 
-The integration is disabled until `STATUS_PAGE_ENABLED=true` and the six
-`UPTIME_KUMA_*_PUSH_URL` values are configured in `.env`. Push URLs are secrets:
-never post them in Discord or commit them. `/status` and `!status` show the same
-service-level health inside Discord and link to `STATUS_PAGE_URL` when enabled.
-
-The Oracle deployment bundle and setup instructions live under
-`deploy/uptime-kuma/`. Uptime Kuma should run independently from the Mac so a
-missed heartbeat still records a bot or home-network outage.
-
-## v2.1.6 Analytics Dashboard
-
-The authenticated dashboard is served at `https://sisyphus.burntdosa.site` after
-the Oracle deployment is configured. It accepts Discord OAuth sign-in with the
-`identify guilds` scopes and only allows members of the configured Sisyphus
-guild. `/dashboard` and `!dashboard` link to the Overview, Players, Betting,
-and Community views.
-
-The Mac remains the only authoritative host for `data.json`. Every five minutes
-`scripts/automation/sisyphus-dashboard-export.py` creates an allow-listed export
-and uploads it atomically over SSH. The export uses HMAC-derived member keys,
-resolves wallet names locally, and excludes PUUIDs, raw Discord IDs, message and
-channel IDs, reports, audit actors, recap URLs, secrets, and the source JSON.
-The export and SSH upload stay disabled until `DASHBOARD_EXPORT_SECRET`,
-`DASHBOARD_SSH_TARGET`, `DASHBOARD_SSH_KEY`, and
-`DASHBOARD_EXPORT_ENABLED=true` are configured in `.env`.
-
-The Oracle service bundle lives under `dashboard/deploy/`. It keeps FastAPI on
-`127.0.0.1:3002`, keeps Uptime Kuma on `127.0.0.1:3001`, and exposes the
-dashboard only through Nginx on HTTPS. OAuth and session placeholders belong in
-the private Oracle file based on `dashboard/.env.example`; do not put OAuth
-secrets in the Mac bot configuration.
-
-## Region Notes
-
-`OPGG_REGION` must be uppercase:
+Set `OPGG_REGION` to one of these values.
 
 | Region | Value |
-|---|---|
+| --- | --- |
 | Korea | `KR` |
 | North America | `NA` |
 | Europe West | `EUW` |
-| Europe Nordic & East | `EUNE` |
+| Europe Nordic and East | `EUNE` |
 | South East Asia | `SEA` |
 
-Riot routing is separate from OP.GG routing. For this server, the normal Riot
-settings are:
+Riot routing is separate from OP.GG routing. The normal settings for this server are shown in `env.example_v2`.
 
-```dotenv
-PLATFORM=sg2
-RIOT_PLATFORMS=sg2
-REGION=sea
-```
+## Data, Backups, and Privacy
 
-`REGION=sea` is normalized to Riot's `asia` regional route in code.
+`data.json` contains private server state. It can include tracked players, linked accounts, match history, LP points, and community records.
 
-## Automation And Backups
+It can also include points-market data, audit entries, and changelog state.
 
-`scripts/automation/sisyphus-data-backup.py` validates and backs up `data.json`.
-The macOS LaunchAgent `com.gagan.sisyphus.data-daily` can run it daily and keep
-the latest 14 daily backups under `backups/data-json/`.
+Keep this file outside Git. Keep it on the Mac that runs the bot.
 
-The Riot key auto-renewal scripts still exist in `scripts/automation`, but the
-launchd renewer and daily Telegram reminder are not part of the default runtime.
-Use them only when you intentionally want that workflow back.
+The private operator project includes `scripts/automation/sisyphus-data-backup.py` for backup validation.
 
-## Development Notes
+Its macOS LaunchAgent can keep daily backups under `backups/data-json/`.
 
-There is no full test suite, but there is a non-network smoke check for embed
-limits and important behavior:
+## Development
+
+Run these checks before you commit a change.
 
 ```bash
 uv run python -m py_compile sisyphus/*.py scripts/smoke_embed_limits.py
 uv run python scripts/smoke_embed_limits.py
 uv run python scripts/smoke_status_health.py
 uv run python scripts/smoke_process_lock.py
+uv run python scripts/smoke_profile_commands.py
 uv run python scripts/smoke_profile_rank.py
+uv run python scripts/smoke_duplicate_events.py
 uv run python scripts/smoke_changelog.py
 uv run python scripts/smoke_dashboard_export.py
 uv run --directory dashboard python ../scripts/smoke_dashboard_auth.py
@@ -290,5 +251,27 @@ npm --prefix dashboard/web run typecheck
 npm --prefix dashboard/web run build
 ```
 
-Patch versions should move forward for normal commits. Major and minor versions
-only move when the maintainer explicitly asks for them.
+Use `uv` for Python dependency changes. Keep the bot state files out of Git.
+
+Do not start a second bot process when the supervisor is active. Ask the supervisor to restart the managed process.
+
+## Public Source Mirror
+
+This repository is the public source mirror for the private Sisyphus project. A GitHub Actions workflow updates it after a private `main` branch push.
+
+The workflow copies source code, templates, checks, and dashboard code.
+
+It does not copy `.env`, `data.json`, backups, runtime logs, deployment files, private IDs, or secrets.
+
+Do not use this repository as a source of live server state. Make operational changes in the private project.
+
+## Visual Assets That Would Help
+
+The existing hero artwork is in use. These assets would make the README easier to scan:
+
+1. A Discord recap screenshot at `1600 x 1000` pixels. Show one completed ranked Solo/Duo recap with the overview buttons. Blur or replace member names and IDs.
+2. A dashboard Overview screenshot at `1600 x 1000` pixels. Show the squad LP chart, the record list, and the left navigation rail.
+3. A dashboard Players screenshot at `1600 x 1000` pixels. Show a rank emblem, LP journey, and the collapsed recent-match section.
+4. An optional 8 to 12 second GIF at `1440 x 900` pixels. Show `/track`, a new recap, and the dashboard refresh. Keep the file below `10 MB`.
+
+Put still images in `docs/assets/`. Put the GIF in `docs/assets/sisyphus-flow.gif`.
