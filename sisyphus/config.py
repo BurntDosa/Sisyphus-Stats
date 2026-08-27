@@ -89,7 +89,7 @@ if PLATFORM not in RIOT_PLATFORMS:
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
 MISTRAL_TIMEOUT_SECONDS = int(os.getenv("MISTRAL_TIMEOUT_SECONDS", "5"))
-APP_VERSION = os.getenv("APP_VERSION", "2.1.8")
+APP_VERSION = os.getenv("APP_VERSION", "2.1.9")
 STATUS_PAGE_ENABLED = os.getenv("STATUS_PAGE_ENABLED", "false").strip().lower() in {
     "1",
     "true",

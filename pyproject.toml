@@ -1,6 +1,6 @@
 [project]
 name = "sisyphus-daily-data"
-version = "2.1.8"
+version = "2.1.9"
 description = "Discord bot that tracks ranked League of Legends games"
 requires-python = ">=3.11"
 dependencies = [
