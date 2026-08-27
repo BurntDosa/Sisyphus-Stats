@@ -357,7 +357,7 @@ wheels = [
 
 [[package]]
 name = "sisyphus-dashboard"
-version = "2.1.9"
+version = "2.1.10"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },

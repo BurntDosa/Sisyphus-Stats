@@ -123,7 +123,3 @@ npm --prefix dashboard/web run typecheck
 ```
 
 Use `uv` for Python dependency changes. Do not start a second bot process when the supervisor is active.
-
-## Public Source Mirror
-
-This repository is a source-only mirror of the private Sisyphus project. It does not include live data, configuration, backups, deployment files, or secrets.

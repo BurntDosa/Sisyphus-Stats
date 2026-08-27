@@ -1,6 +1,6 @@
 [project]
 name = "sisyphus-dashboard"
-version = "2.1.9"
+version = "2.1.10"
 description = "Authenticated analytics dashboard for Sisyphus"
 requires-python = ">=3.11"
 dependencies = [
