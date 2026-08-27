@@ -1,0 +1,5 @@
+fastapi==0.141.1
+httpx==0.28.1
+itsdangerous==2.2.0
+starlette==1.6.0
+uvicorn[standard]==0.35.0

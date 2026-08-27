@@ -1,0 +1,18 @@
+[project]
+name = "sisyphus-daily-data"
+version = "2.1.7"
+description = "Discord bot that tracks ranked League of Legends games"
+requires-python = ">=3.11"
+dependencies = [
+    "discord-py>=2.3.2",
+    "aiohttp>=3.14.1",
+    "python-dotenv>=1.0.0",
+    "pillow>=12.3.0",
+    # Python's stdlib `zoneinfo` reads tzdata from the OS on Linux/macOS, but
+    # Windows has no IANA database — bundling the `tzdata` package makes the
+    # bot importable everywhere. ~300KB cost, no runtime impact on Linux.
+    "tzdata>=2024.1",
+]
+
+# The bot is invoked via `python -m sisyphus` (not a console-script entry point),
+# so no [project.scripts] or build-system is needed.

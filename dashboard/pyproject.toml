@@ -1,0 +1,12 @@
+[project]
+name = "sisyphus-dashboard"
+version = "2.1.7"
+description = "Authenticated analytics dashboard for Sisyphus"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.117.0",
+    "httpx==0.28.1",
+    "itsdangerous==2.2.0",
+    "starlette>=1.0.1",
+    "uvicorn[standard]==0.35.0",
+]
