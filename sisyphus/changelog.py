@@ -61,6 +61,7 @@ ALLOWED_SLASH_COMMANDS = {
     "recap",
     "refund",
     "report",
+    "role",
     "rivalry",
     "settlebet",
     "squadgoal",
@@ -75,7 +76,7 @@ ALLOWED_SLASH_COMMANDS = {
     "whoami",
 }
 
-CURATED_RELEASE_VERSIONS = {"v2.0.0", "v2.1.0", "v2.1.6"}
+CURATED_RELEASE_VERSIONS = {"v2.0.0", "v2.1.0", "v2.1.6", "v2.1.11"}
 
 
 def run_git(args: list[str]) -> str:
@@ -264,6 +265,41 @@ def build_curated_v216_embed(version: str) -> discord.Embed:
     return embed
 
 
+def build_curated_v2111_embed(version: str) -> discord.Embed:
+    embed = discord.Embed(
+        title=f"Sisyphus {version} is live",
+        description="A private champion roll is ready whenever the squad needs a fresh queue idea.",
+        color=0xA0283B,
+        timestamp=now_ist(),
+    )
+    embed.add_field(
+        name="Champion Rolls",
+        value=(
+            "Use `/role top`, `/role mid`, `/role jgl`, `/role adc`, or `/role supp` "
+            "to get a random champion for that lane. `/role wild` can choose any champion."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Private Loadouts",
+        value=(
+            "Sisyphus sends the result in a DM with current OP.GG runes, summoner spells, "
+            "item path, and skill order, so the channel stays clear."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Complete Role Pools",
+        value=(
+            "Lane rolls use a verified snapshot that covers every currently available League champion, "
+            "including off-meta picks."
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Ranked Solo/Duo only")
+    return embed
+
+
 def get_commit_messages_since(last_sha: str | None) -> tuple[str, int]:
     """Return raw commit messages since the last processed SHA."""
     try:
@@ -413,6 +449,8 @@ def build_release_embed(
         return build_curated_v21_embed(version)
     if version == "v2.1.6":
         return build_curated_v216_embed(version)
+    if version == "v2.1.11":
+        return build_curated_v2111_embed(version)
 
     embed = discord.Embed(
         title=f"Sisyphus {version} is live",

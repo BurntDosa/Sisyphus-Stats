@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from datetime import datetime, timezone
 from typing import Any
 
-from sisyphus.ranks import format_total_lp
+from sisyphus.ranks import format_rank, format_total_lp
 
 
 EXPORT_SCHEMA_VERSION = 1
@@ -133,6 +133,22 @@ def _rank_label(lp: int | None) -> str | None:
     return format_total_lp(lp) if lp is not None else None
 
 
+def _current_rank_label(info: dict, fallback_lp: int | None) -> str | None:
+    """Prefer OP.GG's current rank fields over a reconstructed LP total."""
+    tier = _text(info.get("last_known_tier"), 30).upper()
+    rank = _text(info.get("last_known_rank"), 10)
+    lp = _int(info.get("last_known_raw_lp"))
+    if tier and lp is not None:
+        placement = _int(info.get("leaderboard_rank"))
+        placement_text = (
+            f" #{placement}"
+            if tier in {"MASTER", "GRANDMASTER", "CHALLENGER"} and placement and placement > 0
+            else ""
+        )
+        return f"{format_rank(tier, rank)}{placement_text} — {lp} LP"
+    return _rank_label(fallback_lp)
+
+
 def member_key(user_id: object, secret: str) -> str:
     """Return a stable identifier with no reversible Discord ID in it."""
     digest = hmac.new(
@@ -184,6 +200,16 @@ def _mean(rows: list[dict], field: str) -> float | None:
     return round(sum(values) / len(values), 2) if values else None
 
 
+def _label_counts(rows: list[dict], field: str) -> dict[str, int]:
+    """Return JSON-safe, display-ready counts from imperfect historical data."""
+    counts: Counter[str] = Counter()
+    for row in rows:
+        label = _text(row.get(field), 80)
+        if label:
+            counts[label] += 1
+    return dict(counts)
+
+
 def _player_stats(rows: list[dict]) -> dict:
     wins = sum(row.get("result") == "WIN" for row in rows)
     losses = sum(row.get("result") == "LOSS" for row in rows)
@@ -204,8 +230,8 @@ def _player_stats(rows: list[dict]) -> dict:
         "avg_kill_participation": _mean(rows, "kill_participation"),
         "avg_vision": _mean(rows, "vision"),
         "champion_pool": len({row.get("champion") for row in rows if row.get("champion")}),
-        "role_counts": dict(Counter(row.get("position") for row in rows if row.get("position"))),
-        "champion_counts": dict(Counter(row.get("champion") for row in rows if row.get("champion"))),
+        "role_counts": _label_counts(rows, "position"),
+        "champion_counts": _label_counts(rows, "champion"),
         "backfilled_matches": sum(bool(row.get("backfilled")) for row in rows),
     }
 
@@ -234,7 +260,7 @@ def _sanitize_player(
         "tag_line": _text(info.get("tag_line"), 80),
         "member_key": linked_member_key,
         "current_lp": current_lp,
-        "current_rank": _rank_label(current_lp),
+        "current_rank": _current_rank_label(info, current_lp),
         "peak_lp": peak_lp,
         "peak_rank": _rank_label(peak_lp),
         "stats": _player_stats(rows),

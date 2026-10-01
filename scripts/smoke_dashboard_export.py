@@ -20,6 +20,10 @@ def main() -> None:
                 "game_name": "GoldCurrent",
                 "tag_line": "TEST",
                 "last_known_lp": 1201,
+                "last_known_tier": "GRANDMASTER",
+                "last_known_rank": "1",
+                "last_known_raw_lp": 419,
+                "leaderboard_rank": 1027,
                 "history_backfilled": True,
             }
         },
@@ -31,6 +35,7 @@ def main() -> None:
                     "puuid": "private-puuid",
                     "date": "2026-08-25",
                     "champion": "LeBlanc",
+                    "position": "MIDDLE",
                     "result": "WIN",
                     "lp_change": "+20",
                     "lp_total": 1185,
@@ -39,7 +44,15 @@ def main() -> None:
                     "deaths": 1,
                     "assists": 4,
                     "backfilled": True,
-                }
+                },
+                {
+                    "date": "2026-08-26",
+                    "champion": 7,
+                    "position": 2,
+                    "result": "LOSS",
+                    "lp_change": "-18",
+                    "lp_total": 1167,
+                },
             ]
         },
         "daily_lp": {"GoldCurrent#TEST": {"2026-08-25": 1185, "2026-08-27": 1201}},
@@ -69,8 +82,10 @@ def main() -> None:
     assert "Dosa" in serialized
     assert discord_id not in payload["betting"]["markets"][0]["title"]
     assert "https://" not in payload["betting"]["markets"][0]["title"]
-    assert payload["players"][0]["current_rank"].startswith("GOLD")
+    assert payload["players"][0]["current_rank"] == "GRANDMASTER #1027 — 419 LP"
     assert payload["players"][0]["peak_lp"] == 1201
+    assert payload["players"][0]["stats"]["champion_counts"] == {"LeBlanc": 1, "7": 1}
+    assert payload["players"][0]["stats"]["role_counts"] == {"MIDDLE": 1, "2": 1}
     assert payload["players"][0]["daily_lp"][1]["value"] is None
     assert payload["betting"]["wallets"][0]["member_key"] == member_key(discord_id, "a" * 32)
     assert payload["community"]["memories"][0]["items"][0].get("recap_url") is None

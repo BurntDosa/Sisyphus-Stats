@@ -13,9 +13,11 @@ from .config import OPGG_MCP_URL, OPGG_REGION
 from .outcome import canonical_outcome
 from .ranks import DIV_ORDER, TIER_ORDER
 from .utils import as_list, match_day_ist, now_ist, today_ist
+from .vision import enrich_vision, optional_score
 
 CLASS_DEF_RE = re.compile(r"^class ([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$")
 QUEUE_ID_MAP = {"SOLORANKED": 420, "FLEXRANKED": 440}
+OPGG_LEADERBOARD_URL = "https://op.gg/lol/leaderboards/tier"
 
 _mcp_request_id = 0
 
@@ -176,6 +178,46 @@ def ranked_entries_from_profile(summoner: dict):
     return entries
 
 
+def parse_opgg_leaderboard_rank(page: str, game_name: str, tag_line: str) -> int | None:
+    """Extract a highlighted summoner's position from OP.GG's leaderboard page."""
+    summoner_id = f"{game_name}-{tag_line}"
+    # The Next.js flight payload stores the row as escaped JSON inside a script.
+    normalized = (page or "").replace(r'\"', '"').replace(r"\u0026", "&")
+    row_pattern = re.compile(
+        rf'"id":"{re.escape(summoner_id)}".{{0,1200}}?"children":(\d+)',
+        re.DOTALL,
+    )
+    match = row_pattern.search(normalized)
+    if not match:
+        return None
+    try:
+        rank = int(match.group(1))
+    except ValueError:
+        return None
+    return rank if rank > 0 else None
+
+
+async def get_opgg_leaderboard_rank(s, game_name: str, tag_line: str) -> tuple[int | None, str | None]:
+    """Return an exact SEA leaderboard position for an apex Riot ID."""
+    if not game_name or not tag_line:
+        return None, "Missing Riot ID"
+    try:
+        async with s.get(
+            OPGG_LEADERBOARD_URL,
+            params={"region": OPGG_REGION.lower(), "summoner": f"{game_name}-{tag_line}"},
+            headers={"User-Agent": "Sisyphus-Bot apex leaderboard monitor"},
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as response:
+            if response.status != 200:
+                return None, f"Leaderboard HTTP {response.status}"
+            rank = parse_opgg_leaderboard_rank(await response.text(), game_name, tag_line)
+    except (aiohttp.ClientError, TimeoutError) as exc:
+        return None, f"Leaderboard request failed: {type(exc).__name__}"
+    if rank is None:
+        return None, "Leaderboard position not found"
+    return rank, None
+
+
 async def get_summoner_profile(s, game_name, tag_line):
     parsed, err = await opgg_call_tool(
         s,
@@ -218,6 +260,138 @@ async def get_ranked_stats(s, game_name, tag_line):
     return ranked_entries_from_profile(summoner)
 
 
+def _analysis_item_set(value) -> dict:
+    if not isinstance(value, dict):
+        return {"ids": [], "names": []}
+    ids = []
+    for item_id in as_list(value.get("ids")):
+        try:
+            parsed = int(item_id)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            ids.append(parsed)
+    names = [str(name) for name in as_list(value.get("ids_names")) if name]
+    if len(names) != len(ids):
+        names = [f"Item {item_id}" for item_id in ids]
+    return {"ids": ids, "names": names}
+
+
+STAT_SHARD_NAMES = {
+    5001: "Health Scaling",
+    5002: "Armor",
+    5003: "Magic Resist",
+    5005: "Attack Speed",
+    5007: "Ability Haste",
+    5008: "Adaptive Force",
+}
+
+
+def _analysis_item_options(data: dict, field: str) -> list[dict]:
+    """Keep each OP.GG item choice separate instead of inventing a fixed path."""
+    options: list[dict] = []
+    seen: set[tuple[int, ...]] = set()
+    for value in as_list(data.get(field)):
+        item_set = _analysis_item_set(value)
+        signature = tuple(item_set["ids"])
+        if not signature or signature in seen:
+            continue
+        seen.add(signature)
+        options.append(item_set)
+    return options
+
+
+def _opgg_champion_slug(champion: str) -> str:
+    cleaned = champion.upper().replace("'", "").replace(".", "").replace("&", "AND")
+    return re.sub(r"[^A-Z0-9]+", "_", cleaned).strip("_")
+
+
+async def get_champion_analysis(s, champion: str, position: str):
+    """Return the primary OP.GG build for a champion and verified lane."""
+    parsed, err = await opgg_call_tool(
+        s,
+        "lol_get_champion_analysis",
+        {
+            "game_mode": "ranked",
+            "champion": _opgg_champion_slug(champion),
+            "position": position,
+            "lang": "en_US",
+            "desired_output_fields": [
+                "champion",
+                "position",
+                "data.runes.{primary_page_id,primary_page_name,primary_rune_ids[],primary_rune_names[],secondary_page_id,secondary_page_name,secondary_rune_ids[],secondary_rune_names[],stat_mod_ids[],stat_mod_names[]}",
+                "data.summoner_spells.{ids[],ids_names[]}",
+                "data.starter_items.{ids[],ids_names[]}",
+                "data.boots.{ids[],ids_names[]}",
+                "data.core_items.{ids[],ids_names[]}",
+                "data.fourth_items[].{ids[],ids_names[]}",
+                "data.fifth_items[].{ids[],ids_names[]}",
+                "data.sixth_items[].{ids[],ids_names[]}",
+                "data.skills.{order[]}",
+                "data.skill_masteries.{ids[]}",
+            ],
+        },
+    )
+    if err:
+        return None, err
+    data = (parsed or {}).get("data")
+    if not isinstance(data, dict):
+        return None, "Champion build payload missing"
+    runes = data.get("runes")
+    if not isinstance(runes, dict):
+        return None, "Champion rune recommendation missing"
+    stat_ids = [int(value) for value in as_list(runes.get("stat_mod_ids")) if value]
+    normalized_runes = {
+        "primary_page": str(runes.get("primary_page_name") or "Primary"),
+        "primary_ids": [int(value) for value in as_list(runes.get("primary_rune_ids")) if value],
+        "primary_names": [str(value) for value in as_list(runes.get("primary_rune_names")) if value],
+        "secondary_page": str(runes.get("secondary_page_name") or "Secondary"),
+        "secondary_ids": [int(value) for value in as_list(runes.get("secondary_rune_ids")) if value],
+        "secondary_names": [str(value) for value in as_list(runes.get("secondary_rune_names")) if value],
+        "stat_ids": stat_ids,
+        # OP.GG can return raw shard IDs in stat_mod_names. Use the canonical
+        # game-data labels so a loadout never exposes those implementation IDs.
+        "stat_names": [STAT_SHARD_NAMES.get(value, f"Stat shard {value}") for value in stat_ids],
+    }
+    spells = _analysis_item_set(data.get("summoner_spells"))
+    starter = _analysis_item_set(data.get("starter_items"))
+    boots = _analysis_item_set(data.get("boots"))
+    core = _analysis_item_set(data.get("core_items"))
+    skills = [str(value) for value in as_list((data.get("skills") or {}).get("order")) if value]
+    masteries = [
+        str(value) for value in as_list((data.get("skill_masteries") or {}).get("ids")) if value
+    ]
+    required = (
+        normalized_runes["primary_ids"],
+        normalized_runes["secondary_ids"],
+        normalized_runes["stat_ids"],
+        spells["ids"],
+        starter["ids"],
+        boots["ids"],
+        core["ids"],
+        skills,
+        masteries,
+    )
+    if not all(required):
+        return None, "OP.GG returned an incomplete champion loadout"
+    return {
+        "champion": str((parsed or {}).get("champion") or champion),
+        "position": str((parsed or {}).get("position") or position),
+        "runes": normalized_runes,
+        "spell_ids": spells["ids"],
+        "starter": starter,
+        "boots": boots,
+        "core": core,
+        "later_items": {
+            "4th": _analysis_item_options(data, "fourth_items"),
+            "5th": _analysis_item_options(data, "fifth_items"),
+            "6th": _analysis_item_options(data, "sixth_items"),
+        },
+        "skills": skills,
+        "skill_masteries": masteries,
+    }, None
+
+
 async def get_recent_matches(s, game_name, tag_line, count=1):
     if not game_name or not tag_line:
         return []
@@ -250,10 +424,6 @@ def opgg_participant_to_riot(participant: dict):
     result_code = str(stats.get("result") or "").upper()
     outcome = canonical_outcome(result_code) or "DRAW"
     vision_score = stats.get("vision_score")
-    if vision_score is None:
-        vision_score = stats.get("ward_place")
-    if vision_score is None:
-        vision_score = stats.get("vision_wards_bought_in_game")
     items = as_list(participant.get("items"))
     item_names = [str(name) for name in as_list(participant.get("items_names")) if name]
     mapped = {
@@ -278,7 +448,8 @@ def opgg_participant_to_riot(participant: dict):
         ),
         "goldEarned": int(stats.get("gold_earned") or 0),
         "champLevel": int(stats.get("champion_level") or 0),
-        "visionScore": int(vision_score or 0),
+        "visionScore": optional_score(vision_score),
+        "visionScoreSource": "opgg" if optional_score(vision_score) is not None else None,
         "controlWardsBought": int(stats.get("vision_wards_bought_in_game") or 0),
         "wardsPlaced": int(stats.get("ward_place") or 0),
         "wardsKilled": int(stats.get("ward_kill") or 0),
@@ -325,7 +496,7 @@ async def get_match(s, match_id, created_at):
             participants.append(opgg_participant_to_riot(participant))
 
     queue_id = QUEUE_ID_MAP.get(game_detail.get("game_type"), 0)
-    return {
+    match = {
         "metadata": {"matchId": game_detail.get("id", match_id)},
         "info": {
             "queueId": queue_id,
@@ -335,6 +506,8 @@ async def get_match(s, match_id, created_at):
             "teams": teams,
         },
     }
+    await enrich_vision(s, match)
+    return match
 
 
 def _team_objectives_to_riot(objectives: dict):
@@ -417,10 +590,6 @@ def build_history_entry(match_entry: dict, participant: dict, fallback_lp=None):
     cs = int(stats.get("minion_kill") or 0) + int(stats.get("neutral_minion_kill") or 0)
     minutes = duration / 60 if duration else 0
     vision_score = stats.get("vision_score")
-    if vision_score is None:
-        vision_score = stats.get("ward_place")
-    if vision_score is None:
-        vision_score = stats.get("vision_wards_bought_in_game")
     return {
         "date": str(day) if day else str(today_ist()),
         "match_id": match_entry.get("id"),
@@ -441,7 +610,8 @@ def build_history_entry(match_entry: dict, participant: dict, fallback_lp=None):
         "cs": cs,
         "cs_per_min": round(cs / minutes, 1) if minutes else 0.0,
         "damage": int(stats.get("total_damage_dealt_to_champions") or 0),
-        "vision": int(vision_score or 0),
+        "vision": optional_score(vision_score),
+        "vision_source": "opgg" if optional_score(vision_score) is not None else None,
         "gold": int(stats.get("gold_earned") or 0),
         "level": int(stats.get("champion_level") or 0),
         "controlWardsBought": int(stats.get("vision_wards_bought_in_game") or 0),

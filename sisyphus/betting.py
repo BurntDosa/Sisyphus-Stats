@@ -1741,13 +1741,15 @@ async def void_single_markets_for_duo(tracked_keys: list[str], destination_looku
     return voided
 
 
-async def settle_markets_for_match(riot_id: str, result_code: str, destination_lookup):
+async def settle_markets_for_match(riot_id: str, result_code: str, destination_lookup, *, eligible_market_ids=None):
     market_result = resolve_match_result(result_code)
     if market_result is None:
         return []
 
     settled = []
     for market in list(_markets().values()):
+        if eligible_market_ids is not None and market.get("market_id") not in eligible_market_ids:
+            continue
         mk = market.get("tracked_key", "")
         if not _overlapping_tracked_subject(mk, riot_id):
             continue

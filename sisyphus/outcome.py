@@ -84,7 +84,7 @@ def compute_all_time_stats(history_all):
         if d is not None
     ]
     net_lp = sum(deltas) if deltas else 0
-    peak_lp_total = max((h.get("lp_total", 0) for h in history_all), default=0)
+    peak_lp_total = max((h["lp_total"] for h in history_all if isinstance(h.get("lp_total"), int)), default=0)
     return wins, losses, draws, net_lp, peak_lp_total
 
 
@@ -129,6 +129,8 @@ def reconcile_delayed_lp(riot_id: str, current_total_lp: int, today_str: str):
 
     candidate = None
     for row in reversed(history_rows):
+        if row.get("recap_key") or row.get("recovered"):
+            continue
         if row.get("result") != "DRAW":
             continue
         if row.get("reconciled", False):

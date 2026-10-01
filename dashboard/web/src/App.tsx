@@ -48,7 +48,7 @@ const emptyFilters: Filters = { player: "", champion: "", result: "", from: "", 
 const EXPORT_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const RANK_TIERS = new Set(["iron", "bronze", "silver", "gold", "platinum", "emerald", "diamond", "master", "grandmaster", "challenger"]);
 
-type RankSummary = { tier: string; division: string; lp: number };
+type RankSummary = { tier: string; division: string | null; leaderboardRank: number | null; lp: number };
 type ChartMarker = { name: string; coord: [number, number]; label?: { position: "top" | "bottom"; distance?: number } };
 
 const VIEWS: Array<{ id: ViewName; label: string; chapter: string; title: string; description: string; icon: typeof Activity }> = [
@@ -103,11 +103,15 @@ function duration(value: number | null | undefined): string {
 }
 
 function parseRank(value: string | null | undefined): RankSummary | null {
-  const match = String(value || "").match(/^([A-Z]+)\s+([1-4])\s+[—-]\s+(\d+)\s+LP$/i);
+  const match = String(value || "").match(/^([A-Z]+)(?:\s+([1-4]))?(?:\s+#(\d+))?\s+[—-]\s+(\d+)\s+LP$/i);
   if (!match) return null;
   const tier = match[1].toLowerCase();
-  const lp = Number(match[3]);
-  return RANK_TIERS.has(tier) && Number.isFinite(lp) ? { tier, division: match[2], lp } : null;
+  const lp = Number(match[4]);
+  const leaderboardRank = match[3] ? Number(match[3]) : null;
+  const division = match[2] || null;
+  return RANK_TIERS.has(tier) && Number.isFinite(lp) && (leaderboardRank == null || leaderboardRank > 0)
+    ? { tier, division, leaderboardRank, lp }
+    : null;
 }
 
 function romanDivision(value: string): string {
@@ -116,7 +120,10 @@ function romanDivision(value: string): string {
 
 function rankDescription(value: string | null | undefined): string {
   const rank = parseRank(value);
-  return rank ? `${rank.tier.toUpperCase()} ${romanDivision(rank.division)} — ${rank.lp.toLocaleString("en-US")} LP` : "Unavailable";
+  if (!rank) return "Unavailable";
+  const division = rank.division ? ` ${romanDivision(rank.division)}` : "";
+  const placement = rank.leaderboardRank ? ` #${rank.leaderboardRank.toLocaleString("en-US")}` : "";
+  return `${rank.tier.toUpperCase()}${division}${placement} — ${rank.lp.toLocaleString("en-US")} LP`;
 }
 
 function recordLabel(label: string): string {
@@ -506,7 +513,7 @@ function Players({ data, filters }: { data: DashboardData; filters: Filters }) {
             <div className="rank-summary-copy">
               <span>Current LP</span>
               <strong>{currentRank ? currentRank.lp.toLocaleString("en-US") + " LP" : "Unavailable"}</strong>
-              <small>{currentRank ? currentRank.tier.toUpperCase() + " " + romanDivision(currentRank.division) : "Rank unavailable"}</small>
+              <small>{currentRank ? currentRank.tier.toUpperCase() + (currentRank.division ? " " + romanDivision(currentRank.division) : "") + (currentRank.leaderboardRank ? " #" + currentRank.leaderboardRank.toLocaleString("en-US") : "") : "Rank unavailable"}</small>
             </div>
           </div>
           <small className="rank-peak">Peak {peakRank ? rankDescription(player.peak_rank) : "Unavailable"}</small>

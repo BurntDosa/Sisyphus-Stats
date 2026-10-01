@@ -116,6 +116,12 @@ async def on_ready():
         weekly_squad_recap_task.start()
     if not monthly_recap_task.is_running():
         monthly_recap_task.start()
+    try:
+        from .apex import load_saved_apex_cutoffs
+
+        load_saved_apex_cutoffs()
+    except Exception as exc:
+        print(f"[apex] could not load saved cutoff snapshot: {type(exc).__name__}: {exc}")
     if BETTING_ENABLED and not betting_housekeeping_task.is_running():
         betting_housekeeping_task.start()
     if not check_key_expiry.is_running():
@@ -132,6 +138,7 @@ async def on_ready():
             print("[bot] Launched Telegram background polling task.")
         except Exception as e:
             print(f"[bot] Failed to start Telegram task: {e}")
+
 
     if not _slash_commands_synced:
         try:

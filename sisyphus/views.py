@@ -12,10 +12,10 @@ from .community import praise_lines
 from .outcome import compute_net_lp, match_outcome, outcome_icon
 from .profiles import MemoryNameModal, recap_headline, user_owns_player
 from .ranks import (
-    DIVISION_BY_INDEX,
-    TIER_BY_INDEX,
     TIER_COLOR,
+    format_rank,
     format_total_lp,
+    tier_for_total_lp,
     tier_emoji,
     tier_image_url,
 )
@@ -130,7 +130,7 @@ class ScoreboardView(discord.ui.View):
 
     def _overview_embed(self):
         p = self.participant
-        lp_diff = (self.new_lp - self.old_lp) if self.old_lp is not None else None
+        lp_diff = (self.new_lp - self.old_lp) if self.old_lp is not None and self.new_lp is not None else None
         outcome = match_outcome(
             p.get("result_code"),
             lp_diff if lp_diff is not None else 0,
@@ -147,36 +147,28 @@ class ScoreboardView(discord.ui.View):
             color = 0x99AAB5
             result_line = f"➖ Remake · {duration_str(self.duration)}"
 
-        rank_str = f"{self.tier} {self.rank}".strip() if self.rank else self.tier
+        rank_str = format_rank(self.tier, self.rank)
 
-        if self.old_lp is not None and (self.new_lp // 100) > (self.old_lp // 100):
-            old_tier_idx = self.old_lp // 400
-            old_tier = TIER_BY_INDEX.get(old_tier_idx, "UNRANKED")
-            old_div_idx = min(3, (self.old_lp % 400) // 100)
-            old_div = DIVISION_BY_INDEX.get(old_div_idx, "4")
-            old_lp_val = (self.old_lp % 400) % 100
-            old_rank_str = f"{old_tier} {old_div}".strip() if old_div else old_tier
+        if self.old_lp is not None and self.new_lp is not None and (self.new_lp // 100) > (self.old_lp // 100):
+            old_tier = tier_for_total_lp(self.old_lp)
+            old_rank_str = format_total_lp(self.old_lp)
             lp_line = (
-                f"{tier_emoji(old_tier)} **{old_rank_str}** — {old_lp_val} LP  "
+                f"{tier_emoji(old_tier)} **{old_rank_str}**  "
                 f"{lp_delta_str(self.old_lp, self.new_lp)}  ⬆️ "
                 f"{tier_emoji(self.tier)} **{rank_str}**"
             )
-        elif self.old_lp is not None and (self.new_lp // 100) < (self.old_lp // 100):
-            old_tier_idx = self.old_lp // 400
-            old_tier = TIER_BY_INDEX.get(old_tier_idx, "UNRANKED")
-            old_div_idx = min(3, (self.old_lp % 400) // 100)
-            old_div = DIVISION_BY_INDEX.get(old_div_idx, "4")
-            old_lp_val = (self.old_lp % 400) % 100
-            old_rank_str = f"{old_tier} {old_div}".strip() if old_div else old_tier
+        elif self.old_lp is not None and self.new_lp is not None and (self.new_lp // 100) < (self.old_lp // 100):
+            old_tier = tier_for_total_lp(self.old_lp)
+            old_rank_str = format_total_lp(self.old_lp)
             lp_line = (
-                f"{tier_emoji(old_tier)} **{old_rank_str}** — {old_lp_val} LP  "
+                f"{tier_emoji(old_tier)} **{old_rank_str}**  "
                 f"{lp_delta_str(self.old_lp, self.new_lp)}  ⬇️ "
                 f"{tier_emoji(self.tier)} **{rank_str}**"
             )
         else:
             lp_line = (
-                f"{tier_emoji(self.tier)} **{rank_str}** — {self.lp} LP  "
-                f"{lp_delta_str(self.old_lp, self.new_lp)}"
+                f"{tier_emoji(self.tier)} **{rank_str}** — {self.lp if self.lp is not None else 'Unavailable'} LP  "
+                f"{lp_delta_str(self.old_lp, self.new_lp) if lp_diff is not None else 'LP change Unavailable'}"
             )
 
         e = discord.Embed(color=color, timestamp=now_ist())
@@ -194,7 +186,7 @@ class ScoreboardView(discord.ui.View):
         cs = p["totalMinionsKilled"] + p.get("neutralMinionsKilled", 0)
         cpm = cs / (self.duration / 60) if self.duration else 0.0
         dmg = p["totalDamageDealtToChampions"]
-        vision = p["visionScore"]
+        vision = p.get("visionScore")
         gold = p["goldEarned"]
         team = self.blue_team if self.tracked_team_id == 100 else self.red_team
         enemy = self.red_team if self.tracked_team_id == 100 else self.blue_team
@@ -223,7 +215,7 @@ class ScoreboardView(discord.ui.View):
             ),
             inline=True,
         )
-        vision_bits = [f"Vision **{vision}**"]
+        vision_bits = [f"Vision score **{vision if vision is not None else 'Unavailable'}**"]
         if p.get("wardsPlaced"):
             vision_bits.append(f"Wards `{p['wardsPlaced']}`")
         if p.get("wardsKilled"):
@@ -452,7 +444,16 @@ class ScoreboardView(discord.ui.View):
         )
 
     async def on_timeout(self):
-        await _hide_timed_out_view(self, "ScoreboardView")
+        if getattr(self, "delivery_marker", None):
+            for child in self.children:
+                child.disabled = True
+            if self.message:
+                try:
+                    await self.message.edit(view=self)
+                except discord.HTTPException:
+                    pass
+        else:
+            await _hide_timed_out_view(self, "ScoreboardView")
 
 
 class DailyReportView(discord.ui.View):
@@ -488,7 +489,7 @@ class DailyReportView(discord.ui.View):
             color=color,
             timestamp=now_ist(),
         )
-        e.set_author(name=self.riot_id, icon_url=tier_image_url(self.today_lp // 400))
+        e.set_author(name=self.riot_id, icon_url=tier_image_url(tier_for_total_lp(self.today_lp)))
 
         e.add_field(name="Games", value=f"**{wins + losses + draws}**", inline=True)
         e.add_field(
@@ -537,7 +538,7 @@ class DailyReportView(discord.ui.View):
         e = discord.Embed(
             title="Recent History", color=0x5865F2, timestamp=now_ist()
         )
-        e.set_author(name=self.riot_id, icon_url=tier_image_url(self.today_lp // 400))
+        e.set_author(name=self.riot_id, icon_url=tier_image_url(tier_for_total_lp(self.today_lp)))
         recent = [h for h in self.history_all[::-1] if h.get("result") != "DRAW"]
         if not recent:
             e.description = "No games recorded yet."
@@ -597,6 +598,7 @@ class StatsTabsView(discord.ui.View):
         all_draws,
         all_net_lp,
         peak_total_lp,
+        leaderboard_rank=None,
     ):
         super().__init__(timeout=180)
         self.riot_id = riot_id
@@ -612,10 +614,11 @@ class StatsTabsView(discord.ui.View):
         self.all_draws = all_draws
         self.all_net_lp = all_net_lp
         self.peak_total_lp = peak_total_lp
+        self.leaderboard_rank = leaderboard_rank
         self.message = None
 
     def _today_embed(self):
-        rank_str = f"{self.tier} {self.rank}".strip() if self.rank else self.tier
+        rank_str = format_rank(self.tier, self.rank)
         sign = "+" if self.today_diff >= 0 else ""
         e = discord.Embed(
             title="Today's Stats",
@@ -623,9 +626,16 @@ class StatsTabsView(discord.ui.View):
             timestamp=now_ist(),
         )
         e.set_author(name=self.riot_id, icon_url=tier_image_url(self.tier))
+        placement = (
+            f" #{self.leaderboard_rank}"
+            if self.tier in {"MASTER", "GRANDMASTER", "CHALLENGER"}
+            and isinstance(self.leaderboard_rank, int)
+            and self.leaderboard_rank > 0
+            else ""
+        )
         e.add_field(
             name="Rank",
-            value=f"{tier_emoji(self.tier)} **{rank_str}** — {self.lp} LP",
+            value=f"{tier_emoji(self.tier)} **{rank_str}{placement}** — {self.lp} LP",
             inline=False,
         )
         e.add_field(
@@ -791,7 +801,9 @@ class HelpView(discord.ui.View):
                 "• `/recap [target]` — Post the latest ranked Solo/Duo recap.\n"
                 "• `/stats [target]` — View rank, daily LP, peak, and all-time tracked stats.\n"
                 "• `/profile [target]` — View a Sisyphus-observed player profile.\n"
-                "• `/dailyreport [target]` — Force a daily report card."
+                "• `/dailyreport [target]` — Force a daily report card.\n"
+                "• `/role <lane>` — DM a random champion with current runes and build. "
+                "Use `top`, `mid`, `jgl`, `adc`, `supp`, or `wild`."
             ),
             inline=False,
         )

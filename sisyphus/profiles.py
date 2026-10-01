@@ -8,7 +8,7 @@ import discord
 
 from .community import ensure_community, parse_lp_delta, player_label
 from .outcome import current_streak, outcome_icon
-from .ranks import TIER_BY_INDEX, TIER_COLOR, format_total_lp, tier_image_url
+from .ranks import TIER_COLOR, format_rank, format_total_lp, tier_for_total_lp, tier_image_url
 from .state import data, save_data
 from .utils import now_ist, parse_iso_datetime
 
@@ -117,6 +117,18 @@ def _current_lp(riot_id: str) -> int | None:
     return _as_lp(data.get("tracked", {}).get(riot_id, {}).get("last_known_lp"))
 
 
+def _current_rank_label(riot_id: str) -> str:
+    info = data.get("tracked", {}).get(riot_id, {})
+    tier = str(info.get("last_known_tier") or "").upper()
+    lp = _as_lp(info.get("last_known_raw_lp"))
+    if tier and lp is not None:
+        rank = str(info.get("last_known_rank") or "").strip()
+        placement = info.get("leaderboard_rank")
+        placement_text = f" #{placement}" if isinstance(placement, int) and placement > 0 else ""
+        return f"{format_rank(tier, rank)}{placement_text} — {lp} LP"
+    return format_total_lp(_current_lp(riot_id))
+
+
 def _badge_lp(riot_id: str, rows: list[dict] | None = None) -> int | None:
     """Use the current rank for presentation, falling back to history if absent."""
     rows = _rows(riot_id) if rows is None else rows
@@ -127,10 +139,13 @@ def _badge_lp(riot_id: str, rows: list[dict] | None = None) -> int | None:
 
 
 def _profile_color(riot_id: str) -> int:
-    badge_lp = _badge_lp(riot_id)
-    if badge_lp is None:
+    info = data.get("tracked", {}).get(riot_id, {})
+    tier = str(info.get("last_known_tier") or "").upper()
+    if not tier:
+        badge_lp = _badge_lp(riot_id)
+        tier = tier_for_total_lp(badge_lp)
+    if tier == "UNRANKED":
         return ACCENT
-    tier = TIER_BY_INDEX.get(max(0, badge_lp) // 400, "UNRANKED")
     return TIER_COLOR.get(tier, ACCENT)
 
 
@@ -349,6 +364,7 @@ class PlayerProfileView(discord.ui.View):
 
     def _base(self, title: str, color: int | None = None) -> discord.Embed:
         badge_lp = _badge_lp(self.riot_id)
+        tracked_tier = data.get("tracked", {}).get(self.riot_id, {}).get("last_known_tier")
         e = discord.Embed(
             title=title,
             color=color or _profile_color(self.riot_id),
@@ -356,7 +372,7 @@ class PlayerProfileView(discord.ui.View):
         )
         e.set_author(
             name=self.riot_id,
-            icon_url=tier_image_url((badge_lp or 0) // 400),
+            icon_url=tier_image_url(str(tracked_tier or tier_for_total_lp(badge_lp))),
         )
         e.set_footer(text="Sisyphus-observed ranked Solo/Duo history only")
         return e
@@ -376,7 +392,7 @@ class PlayerProfileView(discord.ui.View):
 
         e = self._base(player_label(self.riot_id))
         e.description = (
-            f"**Current:** `{format_total_lp(current_lp)}`\n"
+            f"**Current:** `{_current_rank_label(self.riot_id)}`\n"
             f"**Peak:** `{format_total_lp(peak_lp)}`\n\n"
             f"**{len(rows)}** games witnessed · `{wins}W / {losses}L / {draws}D`\n"
             f"Lifetime net LP: **`{net_lp:+} LP`**"

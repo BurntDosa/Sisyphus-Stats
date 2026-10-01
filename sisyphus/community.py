@@ -140,7 +140,7 @@ def make_history_row(match: dict, participant: dict, riot_id: str, outcome: str,
     cs = int(participant.get("totalMinionsKilled") or 0) + int(participant.get("neutralMinionsKilled") or 0)
     damage = int(participant.get("totalDamageDealtToChampions") or 0)
     gold = int(participant.get("goldEarned") or 0)
-    vision = int(participant.get("visionScore") or 0)
+    vision = participant.get("visionScore")
     minutes = duration / 60 if duration else 0
     day = str(today_ist())
     if info.get("gameCreation"):
@@ -175,6 +175,7 @@ def make_history_row(match: dict, participant: dict, riot_id: str, outcome: str,
         "damage": damage,
         "damage_share": round(damage_share, 1),
         "vision": vision,
+        "vision_source": participant.get("visionScoreSource"),
         "gold": gold,
         "gold_share": round(gold_share, 1),
         "level": int(participant.get("champLevel") or 0),
@@ -251,7 +252,7 @@ def praise_lines(riot_id: str, row: dict, record_labels: list[str] | None = None
         lines.append(f"{name} joined **{row['kill_participation']:.0f}%** of team kills.")
     if row.get("cs_per_min", 0) >= 8:
         lines.append(f"{name} farmed at **{row['cs_per_min']:.1f} CS/min**.")
-    if row.get("vision", 0) >= 20:
+    if (row.get("vision") or 0) >= 20:
         lines.append(f"{name} lit the map with **{row['vision']} vision score**.")
     if record_labels:
         lines.append("New archive mark: **" + ", ".join(record_labels[:2]) + "**.")
@@ -470,13 +471,14 @@ def weekly_recap_embed(days: int = 7) -> discord.Embed:
     )
     volume = max(by_player.items(), key=lambda item: len(item[1]))
     clean = max(rows, key=lambda item: (item[1].get("kda", 0), item[1].get("damage", 0)))
-    vision = max(rows, key=lambda item: item[1].get("vision", 0))
+    vision_rows = [item for item in rows if item[1].get("vision") is not None]
+    vision = max(vision_rows, key=lambda item: item[1]["vision"]) if vision_rows else None
     favorite = champs.most_common(1)[0]
     e.add_field(name="Biggest Climb", value=f"**{player_label(climb[0])}** `{climb[1]:+} LP`", inline=True)
     e.add_field(name="Most Games", value=f"**{player_label(volume[0])}** `{len(volume[1])}`", inline=True)
     e.add_field(name="Favorite Champion", value=f"**{favorite[0]}** `{favorite[1]} games`", inline=True)
     e.add_field(name="Cleanest Game", value=f"**{player_label(clean[0])}** on **{clean[1].get('champion')}** `{clean[1].get('kda', 0):.2f} KDA`", inline=False)
-    e.add_field(name="Best Vision Game", value=f"**{player_label(vision[0])}** on **{vision[1].get('champion')}** `{vision[1].get('vision', 0)} vision`", inline=False)
+    e.add_field(name="Best Vision Game", value=f"**{player_label(vision[0])}** on **{vision[1].get('champion')}** `{vision[1]['vision']} vision score`" if vision else "Vision score unavailable", inline=False)
     goals = squad_goals_embed()
     if goals.description:
         e.add_field(name="Squad Goals", value=goals.description[:1024], inline=False)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 
 from .config import DATA_FILE
 
@@ -15,7 +16,9 @@ def load_data() -> dict:
                 loaded.setdefault("tracked", {})
                 loaded.setdefault("daily_lp", {})
                 loaded.setdefault("history", {})
+                loaded.setdefault("match_recaps", {})
                 loaded.setdefault("links", {})
+                loaded.setdefault("apex_cutoffs", {})
                 changelog = loaded.setdefault("changelog", {})
                 changelog.setdefault("last_processed_version", None)
                 changelog.setdefault("last_processed_sha", None)
@@ -48,7 +51,9 @@ def load_data() -> dict:
         "tracked": {},
         "daily_lp": {},
         "history": {},
+        "match_recaps": {},
         "links": {},
+        "apex_cutoffs": {},
         "changelog": {
             "last_processed_version": None,
             "last_processed_sha": None,
@@ -84,8 +89,17 @@ def load_data() -> dict:
 
 def save_data(d: dict) -> None:
     d.pop("gif_state", None)  # never write the legacy field back
-    with open(DATA_FILE, "w") as f:
-        json.dump(d, f, indent=2)
+    directory = os.path.dirname(os.path.abspath(DATA_FILE)) or "."
+    fd, temporary_path = tempfile.mkstemp(prefix=".data-", suffix=".json", dir=directory)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(d, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary_path, DATA_FILE)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
 
 
 def migrate_tracked_data() -> None:

@@ -10,7 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sisyphus import betting
 from sisyphus import config
-from sisyphus.changelog import build_curated_v21_embed, build_curated_v216_embed
+from sisyphus.changelog import (
+    build_curated_v21_embed,
+    build_curated_v216_embed,
+    build_curated_v2111_embed,
+)
 from sisyphus.community import (
     halloffame_embed,
     queue_beacon_embed,
@@ -215,6 +219,7 @@ def main() -> None:
         "stats_alltime": stats._all_time_embed(),
         "queue_beacon": queue_beacon,
         "market": market_embed,
+        "changelog_v2111": build_curated_v2111_embed("v2.1.11"),
         "queue_board": queueboard_embed(),
         "rivalries": rivalry_embed(),
         "squad_goals": squad_goals_embed(),

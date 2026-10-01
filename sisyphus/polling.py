@@ -37,6 +37,7 @@ from .opgg import (
     get_lp_info,
     get_match,
     get_champion_mastery,
+    get_opgg_leaderboard_rank,
     get_ranked_stats,
     get_recent_matches,
 )
@@ -62,6 +63,94 @@ _PRESENCE_INDEX = 0
 _LAST_PRESENCE_NAME: str | None = None
 _POLL_RESTART_HANDLE: asyncio.TimerHandle | None = None
 _POLL_RESTART_DELAY_SECONDS = 5.0
+_APEX_RETRY_DELAY = timedelta(hours=1)
+_APEX_TIERS = {"MASTER", "GRANDMASTER", "CHALLENGER"}
+
+
+def _store_current_rank(riot_id: str, tier: str, rank: str, lp: int, total_lp: int) -> bool:
+    """Store OP.GG's exact current rank beside its historical LP total."""
+    info = data["tracked"][riot_id]
+    changed = False
+    for key, value in (("last_known_tier", tier), ("last_known_rank", rank), ("last_known_raw_lp", lp)):
+        if info.get(key) != value:
+            info[key] = value
+            changed = True
+    if tier not in {"MASTER", "GRANDMASTER", "CHALLENGER"}:
+        for key in ("leaderboard_rank", "leaderboard_rank_updated_at"):
+            if key in info:
+                info.pop(key, None)
+                changed = True
+    return changed
+
+
+def _apex_retry_due(info: dict) -> bool:
+    raw = info.get("apex_refresh_retry_at")
+    if not raw:
+        return False
+    try:
+        due_at = datetime.fromisoformat(str(raw))
+        if due_at.tzinfo is None:
+            due_at = due_at.replace(tzinfo=IST)
+    except (TypeError, ValueError):
+        return True
+    return due_at <= now_ist()
+
+
+def _schedule_apex_retry(info: dict, reason: str) -> None:
+    info["apex_refresh_retry_at"] = (now_ist() + _APEX_RETRY_DELAY).isoformat()
+    info["apex_refresh_retry_reason"] = reason[:160]
+
+
+def _clear_apex_retry(info: dict) -> bool:
+    changed = False
+    for key in ("apex_refresh_retry_at", "apex_refresh_retry_reason"):
+        if key in info:
+            info.pop(key, None)
+            changed = True
+    return changed
+
+
+async def _refresh_apex_after_match(
+    session: aiohttp.ClientSession,
+    riot_id: str,
+    info: dict,
+    reported_tier: str,
+    raw_lp: int,
+) -> tuple[str, bool]:
+    """Refresh cutoffs and placement before an apex player's recap is sent."""
+    from .apex import refresh_sg_apex_cutoffs, tier_for_apex_lp
+
+    if reported_tier not in _APEX_TIERS:
+        return reported_tier, False
+
+    if not await refresh_sg_apex_cutoffs(session):
+        _schedule_apex_retry(info, "SG apex cutoff source unavailable")
+        retained_tier = reported_tier
+        print(f"[apex] {riot_id}: retained {retained_tier}; cutoff refresh will retry in one hour")
+        return retained_tier, True
+
+    tier = reported_tier
+    cutoff_disagrees = tier_for_apex_lp(raw_lp) not in (None, reported_tier)
+    placement, error = await get_opgg_leaderboard_rank(
+        session, info.get("game_name"), info.get("tag_line")
+    )
+    changed = False
+    if placement is None:
+        _schedule_apex_retry(info, error or "Leaderboard position not found")
+        print(f"[apex] {riot_id}: placement unavailable; retrying in one hour: {error}")
+        return tier, True
+
+    updated_at = now_ist().isoformat()
+    if info.get("leaderboard_rank") != placement:
+        info["leaderboard_rank"] = placement
+        changed = True
+    if info.get("leaderboard_rank_updated_at") != updated_at:
+        info["leaderboard_rank_updated_at"] = updated_at
+        changed = True
+    if cutoff_disagrees:
+        _schedule_apex_retry(info, "Cutoff estimate differs from reported tier")
+        return tier, True
+    return tier, _clear_apex_retry(info) or changed
 
 
 def _platform_is_backed_off(platform: str) -> bool:
@@ -161,7 +250,6 @@ async def poll_players():
     destination = await get_post_destination()
     if not destination:
         mark_poll_failure("Discord destination unavailable")
-        return
 
     # Check active games using Riot Spectator-V5 API
     try:
@@ -326,9 +414,10 @@ async def poll_players():
             ]
         )
 
-        await maybe_send_queue_beacon(destination, active_games)
+        if destination:
+            await maybe_send_queue_beacon(destination, active_games)
 
-        if BETTING_ENABLED:
+        if BETTING_ENABLED and destination:
             # 2. Process active games and handle duo-queue pooling
             from .betting import (
                 get_conflicting_market_for_tracked_key,
@@ -371,237 +460,98 @@ async def poll_players():
     except Exception as e:
         print(f"[poll] Error checking active games: {e}")
 
+    from .completed_matches import process_completed_matches
+    from .match_processing import MatchProcessor, parsed, tracked_participants
+    from .recap_delivery import build_recap_view, enrich_history, restore_recent_views
+
     async with aiohttp.ClientSession() as session:
-        for riot_id, info in list(data["tracked"].items()):
-            game_name = info.get("game_name")
-            tag_line = info.get("tag_line")
-            puuid = info.get("puuid")
-            if not game_name or not tag_line:
-                continue
+        async def recent_fetch(riot_id):
+            tracked = data["tracked"][riot_id]
+            if not tracked.get("game_name") or not tracked.get("tag_line"):
+                return None
+            return await get_recent_matches(session, tracked["game_name"], tracked["tag_line"], count=20)
 
-            ranked = await get_ranked_stats(session, game_name, tag_line)
+        async def rank_fetch(riot_id):
+            tracked = data["tracked"][riot_id]
+            ranked = await get_ranked_stats(session, tracked["game_name"], tracked["tag_line"])
             if ranked is None:
-                print(f"[poll] {riot_id}: ranked fetch failed, skipping cycle")
-                continue
+                return None
             tier, rank, lp, total_lp = get_lp_info(ranked)
-            today_str = str(today_ist())
+            tier, _ = await _refresh_apex_after_match(session, riot_id, tracked, tier, lp)
+            _store_current_rank(riot_id, tier, rank, lp, total_lp)
+            data.setdefault("daily_lp", {}).setdefault(riot_id, {}).setdefault(str(today_ist()), total_lp)
+            return {"tier": tier, "rank": rank, "lp": lp, "total_lp": total_lp}
 
-            data["daily_lp"].setdefault(riot_id, {})
-            data["daily_lp"][riot_id].setdefault(today_str, total_lp)
+        async def view_factory(snapshot):
+            return await build_recap_view(snapshot, session, automatic=True)
 
-            reconcile_delayed_lp(riot_id, total_lp, today_str)
+        def select_markets(match, roster):
+            from .betting import _overlapping_tracked_subject
+            ended = parsed(match["info"]["gameCreation"])
+            selected = []
+            for market in data.get("betting", {}).get("markets", {}).values():
+                opened = parsed(market.get("created_at"))
+                # OP.GG's detail timestamp is the same timestamp used by its
+                # completed-match feed. Never settle a market opened afterwards.
+                if market.get("status") not in {"open", "locked"} or not opened or opened > ended:
+                    continue
+                if any(_overlapping_tracked_subject(market.get("tracked_key", ""), m["riot_id"]) for m in roster):
+                    selected.append(market["market_id"])
+            return sorted(selected)
 
-            recent = await get_recent_matches(session, game_name, tag_line, count=20)
-            if not recent:
-                continue
+        async def settle(record):
+            if BETTING_ENABLED:
+                for member in record["members"]:
+                    await settle_markets_for_match(member["riot_id"],
+                        "VOID" if record["outcome"] == "DRAW" else record["outcome"], _resolve_channel,
+                        eligible_market_ids=record.get("market_ids", []))
 
-            recent_ranked = [m for m in recent if m.get("game_type") == "SOLORANKED"]
-            if not recent_ranked:
-                continue
+        async def enrich_match(match):
+            for participant in tracked_participants(data, match).values():
+                participant["_mastery_points"] = await get_champion_mastery(
+                    session, participant.get("puuid"), participant.get("championId"))
 
+        def history_builder(match, participant, riot_id, outcome, delta, old, new):
+            return make_history_row(match, participant, riot_id, outcome, delta, old, new,
+                mastery_points=participant.get("_mastery_points", 0))
+
+        processor = MatchProcessor(data, save=save_data, history_builder=history_builder,
+            view_factory=view_factory, on_history=enrich_history, settle_record=settle,
+            market_selector=select_markets,
+            max_age_hours=MAX_RECAP_AGE_HOURS)
+        feeds, unseen = await process_completed_matches(data, recent_fetch=recent_fetch,
+            match_fetch=lambda mid, created: get_match(session, mid, created), rank_fetch=rank_fetch,
+            processor=processor, destination=destination, enrich_match=enrich_match)
+        await restore_recent_views(processor.receipts, bot, destination, session)
+        for riot_id, recent_ranked in feeds.items():
+            info = data["tracked"][riot_id]
             history_rows = data.setdefault("history", {}).setdefault(riot_id, [])
-            known_ids = {h.get("match_id") for h in history_rows}
             if not info.get("history_backfilled"):
+                known = {str(row.get("match_id")) for row in history_rows}
                 cutoff = today_ist() - timedelta(days=BACKFILL_DAYS)
                 for entry in reversed(recent_ranked):
-                    entry_id = entry.get("id")
-                    entry_day = match_day_ist(entry.get("created_at"))
-                    if not entry_id or not entry_day or entry_day < cutoff:
+                    mid = str(entry.get("id"))
+                    day = match_day_ist(entry.get("created_at"))
+                    if mid in known or mid in unseen.get(riot_id, set()) or not day or day < cutoff:
                         continue
-                    if entry_id in known_ids:
-                        continue
-                    participant = find_history_participant(
-                        entry, game_name, tag_line, puuid
-                    )
-                    if not participant:
-                        continue
-                    history_rows.append(
-                        build_history_entry(entry, participant, total_lp)
-                    )
-                    known_ids.add(entry_id)
-                data["tracked"][riot_id]["history_backfilled"] = True
-                save_data(data)
-
-            last_seen = info.get("last_match_id")
-            unseen = []
-            for entry in recent_ranked:
-                entry_id = entry.get("id")
-                if not entry_id:
-                    continue
-                if entry_id == last_seen:
-                    break
-                unseen.append(entry)
-
-            if not unseen:
-                if recent_ranked[0].get("id"):
-                    posted_matches.add(recent_ranked[0]["id"])
-                continue
-
-            for entry in reversed(unseen):
-                match_id = entry.get("id")
-                created_at = entry.get("created_at")
-                if not match_id or not created_at:
-                    continue
-                if match_id in posted_matches:
-                    continue
-
-                # Age cap: if the match is older than MAX_RECAP_AGE_HOURS,
-                # advance the pointer without posting. Prevents a flood when
-                # the bot has been silent for a long time.
-                try:
-                    dt = datetime.fromisoformat(created_at)
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                    age_h = (now_ist() - dt.astimezone(IST)).total_seconds() / 3600
-                except Exception as exc:
-                    print(f"[poll] age parse failed for {match_id}: {exc}")
-                    age_h = 0.0
-                if age_h > MAX_RECAP_AGE_HOURS:
-                    print(
-                        f"[poll] {riot_id} match {match_id} is {age_h:.1f}h old "
-                        f"(>{MAX_RECAP_AGE_HOURS}h), advancing pointer without posting"
-                    )
-                    posted_matches.add(match_id)
-                    data["tracked"][riot_id]["last_match_id"] = match_id
-                    save_data(data)
-                    continue
-
-                match = await get_match(session, match_id, created_at)
-                if not match:
-                    continue
-
-                if match["info"]["queueId"] != 420:
-                    posted_matches.add(match_id)
-                    data["tracked"][riot_id]["last_match_id"] = match_id
-                    save_data(data)
-                    continue
-
-                participant = next(
-                    (p for p in match["info"]["participants"] if p["puuid"] == puuid),
-                    None,
-                )
-                if not participant:
-                    participant = next(
-                        (
-                            p
-                            for p in match["info"]["participants"]
-                            if (p.get("gameName") or "").lower() == game_name.lower()
-                            and (p.get("tagLine") or "").lower() == tag_line.lower()
-                        ),
-                        None,
-                    )
-                    if participant and participant.get("puuid"):
-                        puuid = participant["puuid"]
-                        data["tracked"][riot_id]["puuid"] = puuid
-                if not participant:
-                    continue
-
-                # LP race fix: re-fetch ranked LP NOW that we've confirmed a fresh
-                # match exists. The match feed updates faster than the ranked profile,
-                # so the LP we read at the top of the cycle may be pre-match.
-                fresh_ranked = await get_ranked_stats(session, game_name, tag_line)
-                if fresh_ranked is None:
-                    print(
-                        f"[poll] {riot_id} match {match_id}: ranked re-fetch failed, "
-                        "deferring this match to next cycle"
-                    )
-                    continue
-                fresh_tier, fresh_rank, fresh_lp, fresh_total_lp = get_lp_info(fresh_ranked)
-
-                old_lp = data["tracked"][riot_id].get("last_known_lp")
-                lp_delta = (fresh_total_lp - old_lp) if old_lp is not None else 0
-
-                duration = match.get("info", {}).get("gameDuration", 0)
-                if is_remake_duration(duration):
-                    print(
-                        f"[poll] {riot_id} match {match_id} duration is {duration}s "
-                        "(< 120s). Forcing DRAW (remake) and voiding bets."
-                    )
-                    outcome = "DRAW"
-                    result_code_for_settlement = "VOID"
-                else:
-                    outcome = match_outcome(
-                        participant.get("result_code"), lp_delta, duration
-                    )
-                    result_code_for_settlement = participant.get("result_code")
-
-                if outcome is None:
-                    print(
-                        f"[poll] {riot_id} match {match_id}: empty result_code, skipping"
-                    )
-                    continue
-
-                if BETTING_ENABLED:
-                    await settle_markets_for_match(
-                        riot_id, result_code_for_settlement, _resolve_channel
-                    )
-
-                needs_reconcile = (
-                    outcome == "DRAW" and old_lp is not None and lp_delta == 0
-                )
-
-                # Local import keeps polling.py out of views.py's import graph.
-                from .views import ScoreboardView
-
-                mastery_points = await get_champion_mastery(
-                    session, puuid, participant.get("championId")
-                )
-
-                view = ScoreboardView(
-                    match,
-                    puuid,
-                    riot_id,
-                    fresh_tier,
-                    fresh_rank,
-                    fresh_lp,
-                    old_lp,
-                    fresh_total_lp,
-                )
-                await view.prepare(session)
-                send_kwargs = view.get_overview_kwargs()
-                msg = await destination.send(**send_kwargs)
-                view.message = msg
-
-                sign = "+" if lp_delta >= 0 else ""
-                history_row = make_history_row(
-                    match,
-                    participant,
-                    riot_id,
-                    outcome,
-                    lp_delta,
-                    old_lp,
-                    fresh_total_lp,
-                    mastery_points=mastery_points,
-                )
-                history_row["date"] = str(match_day_ist(created_at) or today_ist())
-                history_row["lp_change"] = f"{sign}{lp_delta}"
-                history_row["reconciled"] = not needs_reconcile
-                history_row["recap_channel_id"] = str(msg.channel.id)
-                history_row["recap_message_id"] = str(msg.id)
-                history_row["recap_jump_url"] = getattr(msg, "jump_url", None)
-                try:
-                    from .profiles import recap_headline
-
-                    history_row["story_headline"] = recap_headline(riot_id, history_row)
-                except Exception:
-                    pass
-                history_rows.append(history_row)
-                record_labels = update_records(riot_id, history_row)
-                if record_labels:
-                    history_row["record_labels"] = record_labels
-                try:
-                    from .profiles import ensure_player_milestones
-
-                    ensure_player_milestones(riot_id)
-                except Exception as exc:
-                    print(f"[poll] milestone update failed for {riot_id}: {exc}")
-
-                data["tracked"][riot_id]["last_match_id"] = match_id
-                data["tracked"][riot_id]["last_known_lp"] = fresh_total_lp
-                data["daily_lp"][riot_id][today_str] = fresh_total_lp
-                save_data(data)
-                posted_matches.add(match_id)
-                await asyncio.sleep(1.0)
+                    participant = find_history_participant(entry, info["game_name"], info["tag_line"], info.get("puuid"))
+                    if participant:
+                        row = build_history_entry(entry, participant, None)
+                        row.update(match_created_at=entry.get("created_at"), backfilled=True)
+                        history_rows.append(row)
+                        known.add(mid)
+                history_rows.sort(key=lambda row: str(row.get("match_created_at") or row.get("date") or ""))
+                info["history_backfilled"] = True
+            # Legacy reconciliation is only safe when no new match is awaiting
+            # processing and no shared-recap member owns the pending LP baseline.
+            managed = any(m.get("can_reconcile") and m.get("lp_status") != "known"
+                for receipt in processor.receipts.values() if receipt.get("match")
+                for m in receipt["members"] if m["riot_id"] == riot_id)
+            if not unseen.get(riot_id) and not managed:
+                rank = await rank_fetch(riot_id)
+                if rank and recent_ranked and str(info.get("last_match_id")) == str(recent_ranked[0]["id"]):
+                    reconcile_delayed_lp(riot_id, rank["total_lp"], str(today_ist()))
+        save_data(data)
 
     mark_poll_success(poll_started)
 

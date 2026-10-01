@@ -72,8 +72,17 @@ from .opgg import (
 )
 from .outcome import compute_all_time_stats, compute_net_lp
 from .profiles import player_profile_view
-from .ranks import TIER_COLOR, tier_emoji, tier_image_url
+from .ranks import TIER_COLOR, format_rank, tier_emoji, tier_image_url
 from .recap import build_latest_recap
+from .role_roll import (
+    RoleRoll,
+    begin_role_roll,
+    build_role_roll_message,
+    choose_champion,
+    finish_role_roll,
+    get_role_build,
+    normalize_role,
+)
 from .state import data, posted_matches, save_data
 from .utils import as_list, match_day_ist, today_ist, now_ist
 from .views import DailyReportView, StatsTabsView, HelpView, ReportSelectView
@@ -225,6 +234,78 @@ async def cmd_dashboard(ctx: commands.Context):
     await ctx.send(f"📊 [Open Sisyphus Analytics]({DASHBOARD_URL})")
 
 
+@bot.hybrid_command(name="role", help="DM a random champion and current lane build")
+@app_commands.choices(
+    lane=[
+        app_commands.Choice(name="Top", value="top"),
+        app_commands.Choice(name="Mid", value="mid"),
+        app_commands.Choice(name="Jungle", value="jgl"),
+        app_commands.Choice(name="ADC", value="adc"),
+        app_commands.Choice(name="Support", value="supp"),
+        app_commands.Choice(name="Wild (any champion)", value="wild"),
+    ]
+)
+async def cmd_role(ctx: commands.Context, lane: str):
+    role = normalize_role(lane)
+    if role is None:
+        await ctx.send(
+            "Choose `top`, `mid`, `jgl`, `adc`, `supp`, or `wild`.",
+            ephemeral=bool(ctx.interaction),
+        )
+        return
+
+    issue = begin_role_roll(ctx.author.id)
+    if issue:
+        await ctx.send(issue, ephemeral=bool(ctx.interaction), delete_after=None if ctx.interaction else 10)
+        return
+
+    successful = False
+    try:
+        if ctx.interaction:
+            await ctx.defer(ephemeral=True)
+        champion = choose_champion(role)
+        async with aiohttp.ClientSession() as session:
+            build, error = await get_role_build(session, champion, role)
+            if error or not build:
+                message = "I could not retrieve a complete OP.GG loadout. Try again in a moment."
+                await ctx.send(
+                    message,
+                    ephemeral=bool(ctx.interaction),
+                    delete_after=None if ctx.interaction else 12,
+                )
+                return
+            embeds, files = await build_role_roll_message(
+                session, RoleRoll(role=role, champion=champion, build=build)
+            )
+            try:
+                await ctx.author.send(embeds=embeds, files=files)
+            except discord.Forbidden:
+                await ctx.send(
+                    "I could not send a DM. Enable Direct Messages from server members, then try again.",
+                    ephemeral=bool(ctx.interaction),
+                    delete_after=None if ctx.interaction else 15,
+                )
+                return
+
+        successful = True
+        if ctx.interaction:
+            await ctx.send("Your champion roll and loadout are in your DMs.", ephemeral=True)
+        else:
+            try:
+                await ctx.message.add_reaction("📬")
+            except discord.HTTPException:
+                pass
+    except Exception as exc:
+        print(f"[role] {role} roll failed for user {ctx.author.id}: {type(exc).__name__}: {exc}")
+        await ctx.send(
+            "I could not prepare that private loadout. Try again in a moment.",
+            ephemeral=bool(ctx.interaction),
+            delete_after=None if ctx.interaction else 12,
+        )
+    finally:
+        finish_role_roll(ctx.author.id, successful=successful)
+
+
 @bot.hybrid_command(name="track", help="Track a player: !track GameName#TAG")
 async def cmd_track(ctx, *, riot_id: str):
     await ctx.defer()
@@ -280,6 +361,9 @@ async def cmd_track(ctx, *, riot_id: str):
         "tag_line": tag,
         "last_match_id": last_id,
         "last_known_lp": total_lp,
+        "last_known_tier": tier,
+        "last_known_rank": rank,
+        "last_known_raw_lp": lp,
         "history_backfilled": True,
     }
     if last_id:
@@ -309,7 +393,7 @@ async def cmd_track(ctx, *, riot_id: str):
     if BETTING_ENABLED and destination:
         await seed_market_for_tracked_key(key, destination, creator_id=ctx.author.id)
 
-    rank_str = f"{tier} {rank}".strip() if rank else tier
+    rank_str = format_rank(tier, rank)
     e = discord.Embed(
         title=f"Now tracking {key}",
         description=(
@@ -454,6 +538,7 @@ async def cmd_stats(ctx, *, target: str | None = None):
         all_draws,
         all_net_lp,
         peak_total_lp,
+        info.get("leaderboard_rank"),
     )
     await ctx.send(embed=view._today_embed(), view=view)
 

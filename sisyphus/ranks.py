@@ -47,11 +47,51 @@ DIV_ORDER.update({"4": 0, "3": 1, "2": 2, "1": 3})
 
 DIVISION_BY_INDEX = {0: "4", 1: "3", 2: "2", 3: "1"}
 TIER_BY_INDEX = {index: tier for tier, index in TIER_ORDER.items()}
+APEX_START_TOTAL_LP = TIER_ORDER["MASTER"] * 400
+_apex_cutoffs: dict[str, int] | None = None
+
+
+def set_apex_cutoffs(*, challenger: int, grandmaster: int) -> None:
+    """Set the current region cutoffs used when formatting apex LP."""
+    global _apex_cutoffs
+    if challenger <= grandmaster or grandmaster <= 0:
+        raise ValueError("Invalid apex cutoff values")
+    _apex_cutoffs = {"challenger": challenger, "grandmaster": grandmaster}
+
+
+def tier_for_total_lp(total_lp: int | None) -> str:
+    if total_lp is None or total_lp <= 0:
+        return "UNRANKED"
+    if total_lp < APEX_START_TOTAL_LP:
+        return TIER_BY_INDEX.get(total_lp // 400, "UNRANKED")
+    if _apex_cutoffs:
+        if total_lp >= APEX_START_TOTAL_LP + _apex_cutoffs["challenger"]:
+            return "CHALLENGER"
+        if total_lp >= APEX_START_TOTAL_LP + _apex_cutoffs["grandmaster"]:
+            return "GRANDMASTER"
+    return "MASTER"
+
+
+def format_rank(tier: str | None, rank: str | None = None) -> str:
+    """Format a visible rank, omitting non-existent apex divisions."""
+    normalized_tier = str(tier or "UNRANKED").upper()
+    if normalized_tier in {"MASTER", "GRANDMASTER", "CHALLENGER"}:
+        return normalized_tier
+    normalized_rank = str(rank or "").strip()
+    return f"{normalized_tier} {normalized_rank}".strip()
 
 
 def format_total_lp(total_lp):
     if total_lp is None or total_lp <= 0:
         return "UNRANKED — 0 LP"
+    if total_lp >= APEX_START_TOTAL_LP:
+        tier = tier_for_total_lp(total_lp)
+        # Historic totals were recorded while OP.GG still returned a phantom
+        # apex division of `1`. Remove that legacy 300-LP offset before
+        # showing the real apex LP value.
+        legacy_apex_base = TIER_ORDER[tier] * 400 + DIV_ORDER["1"] * 100
+        apex_lp = max(0, total_lp - legacy_apex_base)
+        return f"{tier} — {apex_lp} LP"
     tier_index = total_lp // 400
     tier = TIER_BY_INDEX.get(tier_index, "UNRANKED")
     remainder = total_lp % 400
