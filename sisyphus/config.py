@@ -85,11 +85,8 @@ else:
 if PLATFORM not in RIOT_PLATFORMS:
     RIOT_PLATFORMS.insert(0, PLATFORM)
 
-# Mistral AI Config
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
-MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
-MISTRAL_TIMEOUT_SECONDS = int(os.getenv("MISTRAL_TIMEOUT_SECONDS", "5"))
-APP_VERSION = os.getenv("APP_VERSION", "2.2.0")
+# Release notes are reviewed files in release_notes/, with no runtime AI request.
+APP_VERSION = os.getenv("APP_VERSION", "2.2.1")
 STATUS_PAGE_ENABLED = os.getenv("STATUS_PAGE_ENABLED", "false").strip().lower() in {
     "1",
     "true",
