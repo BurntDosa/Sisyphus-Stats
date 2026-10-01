@@ -9,9 +9,6 @@ import discord
 from .config import BETTING_ENABLED, DASHBOARD_URL, DEVELOPER_DISCORD_ID
 from .daily_report import DailyReportView
 from .ddragon import build_composite_items_image, champion_icon_url
-from .community import praise_lines
-from .outcome import compute_net_lp, match_outcome, outcome_icon
-from .profiles import MemoryNameModal, recap_headline, user_owns_player
 from .ranks import (
     TIER_COLOR,
     format_rank,
@@ -91,9 +88,20 @@ class ScoreboardView(discord.ui.View):
     """Buttons: [📊 Overview] [🔵 Blue] [🔴 Red] [🏅 Full]"""
 
     def __init__(
-        self, match_data, tracked_puuid, riot_id, tier, rank, lp, old_lp, new_lp
+        self, match_data, tracked_puuid, riot_id, tier, rank, lp, old_lp, new_lp,
+        *, lp_status="unavailable", outcome=None, story=None, spotlights=None,
+        remember=None, namespace=None, timeout=300
     ):
-        super().__init__(timeout=300)
+        super().__init__(timeout=timeout)
+        self.lp_status = lp_status
+        self.outcome = outcome
+        self.story = story
+        self.spotlights = spotlights
+        self.remember = remember
+        if namespace:
+            self.delivery_marker = namespace + ":"
+            for child in self.children:
+                child.custom_id = self.delivery_marker + child.custom_id
         self.match = match_data
         self.tracked_puuid = tracked_puuid
         self.riot_id = riot_id
@@ -132,11 +140,10 @@ class ScoreboardView(discord.ui.View):
     def _overview_embed(self):
         p = self.participant
         lp_diff = (self.new_lp - self.old_lp) if self.old_lp is not None and self.new_lp is not None else None
-        outcome = match_outcome(
-            p.get("result_code"),
-            lp_diff if lp_diff is not None else 0,
-            self.duration,
-        )
+        outcome = self.outcome
+        if outcome is None:
+            from .outcome import match_outcome
+            outcome = match_outcome(p.get("result_code"), lp_diff or 0, self.duration)
 
         if outcome == "WIN":
             color = TIER_COLOR.get(self.tier, 0x5865F2)
@@ -169,7 +176,7 @@ class ScoreboardView(discord.ui.View):
         else:
             lp_line = (
                 f"{tier_emoji(self.tier)} **{rank_str}** — {self.lp if self.lp is not None else 'Unavailable'} LP  "
-                f"{lp_delta_str(self.old_lp, self.new_lp) if lp_diff is not None else 'LP change Unavailable'}"
+                f"{lp_delta_str(self.old_lp, self.new_lp) if lp_diff is not None else ''}"
             )
 
         e = discord.Embed(color=color, timestamp=now_ist())
@@ -178,7 +185,10 @@ class ScoreboardView(discord.ui.View):
         title_champ = p["championName"]
         if position:
             title_champ = f"{title_champ} ({position})"
-        e.description = f"**Ranked Solo/Duo** · `{duration_str(self.duration)}`\n{lp_line}"
+        e.description = f"**Ranked Solo/Duo** · `{duration_str(self.duration)}`\n{lp_line.rstrip()}"
+        if lp_diff is None:
+            status = "LP update pending" if self.lp_status == "pending" else "LP change not recorded"
+            e.description += f"\n-# {status}"
         champ_icon = champion_icon_url(p.get("championId"))
         if champ_icon:
             e.set_thumbnail(url=champ_icon)
@@ -237,8 +247,12 @@ class ScoreboardView(discord.ui.View):
             "vision": vision,
             "damage_share": round(dmg_share, 1),
         }
-        e.add_field(name="Story", value=recap_headline(self.riot_id, row), inline=False)
-        spotlights = praise_lines(self.riot_id, row)
+        if self.story is None or self.spotlights is None:
+            from .community import praise_lines
+            from .profiles import recap_headline
+        story = self.story if self.story is not None else recap_headline(self.riot_id, row)
+        e.add_field(name="Story", value=story, inline=False)
+        spotlights = self.spotlights if self.spotlights is not None else praise_lines(self.riot_id, row)
         if spotlights:
             e.add_field(name="Spotlight", value="\n".join(f"• {line}" for line in spotlights), inline=False)
         e.add_field(
@@ -364,7 +378,7 @@ class ScoreboardView(discord.ui.View):
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         e = self._team_embed(self.blue_team, "Blue", self.blue_result, 0x5865F2)
-        await interaction.response.edit_message(embed=e, view=self)
+        await interaction.response.edit_message(embed=e, view=self, attachments=[])
 
     @discord.ui.button(
         label="🔴 Red Team", style=discord.ButtonStyle.secondary, custom_id="red", row=0
@@ -373,7 +387,7 @@ class ScoreboardView(discord.ui.View):
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         e = self._team_embed(self.red_team, "Red", self.red_result, 0xED4245)
-        await interaction.response.edit_message(embed=e, view=self)
+        await interaction.response.edit_message(embed=e, view=self, attachments=[])
 
     @discord.ui.button(
         label="🏅 Full Leaderboard",
@@ -415,7 +429,7 @@ class ScoreboardView(discord.ui.View):
                 value="\n".join(lines),
                 inline=False,
             )
-        await interaction.response.edit_message(embed=e, view=self)
+        await interaction.response.edit_message(embed=e, view=self, attachments=[])
 
     @discord.ui.button(
         label="Remember",
@@ -426,6 +440,10 @@ class ScoreboardView(discord.ui.View):
     async def btn_remember(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
+        if self.remember is not None:
+            await self.remember(interaction, None, self.message)
+            return
+        from .profiles import MemoryNameModal, user_owns_player
         if not user_owns_player(interaction.user.id, self.riot_id):
             await interaction.response.send_message(
                 "❌ Only the linked player can save this match as a memory.",

@@ -41,7 +41,7 @@ from .opgg import (
     get_ranked_stats,
     get_recent_matches,
 )
-from .outcome import is_remake_duration, match_outcome, reconcile_delayed_lp
+from .outcome import is_remake_duration, match_outcome
 from .state import data, posted_matches, save_data
 from .utils import match_day_ist, now_ist, today_ist
 from .health import (
@@ -542,15 +542,13 @@ async def poll_players():
                         known.add(mid)
                 history_rows.sort(key=lambda row: str(row.get("match_created_at") or row.get("date") or ""))
                 info["history_backfilled"] = True
-            # Legacy reconciliation is only safe when no new match is awaiting
-            # processing and no shared-recap member owns the pending LP baseline.
+            # Rank observations refresh today's snapshot independently. Only
+            # MatchProcessor can advance the baseline tied to a completed match.
             managed = any(m.get("can_reconcile") and m.get("lp_status") != "known"
                 for receipt in processor.receipts.values() if receipt.get("match")
                 for m in receipt["members"] if m["riot_id"] == riot_id)
             if not unseen.get(riot_id) and not managed:
-                rank = await rank_fetch(riot_id)
-                if rank and recent_ranked and str(info.get("last_match_id")) == str(recent_ranked[0]["id"]):
-                    reconcile_delayed_lp(riot_id, rank["total_lp"], str(today_ist()))
+                await rank_fetch(riot_id)
         save_data(data)
 
     mark_poll_success(poll_started)

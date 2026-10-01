@@ -1,11 +1,5 @@
-"""Outcome classification, LP math, streak detection, delayed-LP reconciliation."""
+"""State-independent outcome classification, LP math, and streak detection."""
 from __future__ import annotations
-
-from datetime import timedelta
-
-from .config import LP_RECONCILE_DELAY_MINUTES
-from .state import data, save_data
-from .utils import now_ist, parse_iso_datetime
 
 REMAKE_MAX_DURATION_SECONDS = 120
 
@@ -115,55 +109,3 @@ def current_streak(history_rows):
             continue
         break
     return streak_result, streak_count
-
-
-def reconcile_delayed_lp(riot_id: str, current_total_lp: int, today_str: str):
-    tracked_info = data.get("tracked", {}).get(riot_id)
-    if not tracked_info:
-        return False
-
-    history_rows = data.get("history", {}).get(riot_id, [])
-    last_known_lp = tracked_info.get("last_known_lp")
-    now = now_ist()
-    changed = False
-
-    candidate = None
-    for row in reversed(history_rows):
-        if row.get("recap_key") or row.get("recovered"):
-            continue
-        if row.get("result") != "DRAW":
-            continue
-        if row.get("reconciled", False):
-            continue
-        if parse_lp_change(row.get("lp_change")) not in {0, None}:
-            continue
-        lp_before = row.get("lp_before")
-        if lp_before is None:
-            continue
-        seen_at = parse_iso_datetime(row.get("recorded_at"))
-        if seen_at and (now - seen_at) < timedelta(minutes=LP_RECONCILE_DELAY_MINUTES):
-            continue
-        candidate = row
-        break
-
-    if candidate:
-        previous_total = candidate.get("lp_total")
-        candidate["reconciled"] = True
-        candidate["reconciled_at"] = now.isoformat()
-        if previous_total != current_total_lp:
-            lp_before = candidate.get("lp_before")
-            delta = current_total_lp - lp_before
-            candidate["lp_change"] = f"{delta:+d}"
-            candidate["lp_total"] = current_total_lp
-            candidate["reconcile_reason"] = "delayed_lp_adjustment"
-        tracked_info["last_known_lp"] = current_total_lp
-        data["daily_lp"][riot_id][today_str] = current_total_lp
-        changed = True
-    elif last_known_lp is not None and last_known_lp != current_total_lp:
-        tracked_info["last_known_lp"] = current_total_lp
-        data["daily_lp"][riot_id][today_str] = current_total_lp
-        changed = True
-
-    if changed:
-        save_data(data)
-    return changed

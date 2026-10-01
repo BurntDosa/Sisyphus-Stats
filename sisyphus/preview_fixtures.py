@@ -88,3 +88,12 @@ def daily_fixture(scenario="victory"):
         history.append({**row, "match_id": "known-partial", "champion": "Zoe", "lp_change": "+18", "lp_status": "known"})
     return {"riot_id": "Preview Player", "report_date": day,
             "start_lp": opening, "end_lp": closing, "history": history, "history_all": history}
+
+
+def solo_fixture(scenario="victory"):
+    snapshot = duo_fixture(scenario)
+    snapshot["members"] = [snapshot["members"][1]]
+    member = snapshot["members"][0]
+    member["story"] = f"{member['participant']['championName']} on the Rift — ranked Solo/Duo recap preview."
+    member["spotlights"] = []
+    return snapshot

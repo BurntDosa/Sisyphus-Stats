@@ -89,8 +89,8 @@ def lp_line(member):
     raw = number(member.get("lp"))
     current = f"{tier_emoji(tier)} **{rank}**" + (f" · {raw} LP" if raw is not None else "")
     delta = number(member.get("lp_delta"))
-    status = "Pending" if member.get("lp_status") == "pending" else "Unavailable"
-    return current + (f" · **{delta:+d} LP**" if isinstance(delta, int) else f" · LP change **{status}**")
+    status = "LP update pending" if member.get("lp_status") == "pending" else "LP change not recorded"
+    return current + (f" · **{delta:+d} LP**" if isinstance(delta, int) else f"\n-# {status}")
 
 
 def player_lines(snapshot, member):

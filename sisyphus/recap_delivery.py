@@ -34,7 +34,8 @@ async def build_recap_view(snapshot, session, *, automatic=False):
         view = ScoreboardView(snapshot["match"], m["puuid"], m["riot_id"],
             m.get("tier") or "UNRANKED", m.get("rank") or "", m.get("lp"),
             m.get("old_lp") if m.get("lp_status") == "known" else None,
-            m.get("total_lp") if m.get("lp_status") == "known" else None)
+            m.get("total_lp") if m.get("lp_status") == "known" else None,
+            lp_status=m.get("lp_status", "unavailable"))
         view.delivery_marker = f"recap:{recap_digest(snapshot['key'])}:"
         for child in view.children:
             child.custom_id = view.delivery_marker + str(child.custom_id)
