@@ -53,7 +53,7 @@ from .health import (
     mark_poll_started,
     mark_poll_success,
 )
-from .views import DailyReportView
+from .daily_report import DailyReportView, daily_boundaries, record_rank_snapshot
 
 
 _PLATFORM_NETWORK_BACKOFF_UNTIL: dict[str, float] = {}
@@ -479,7 +479,7 @@ async def poll_players():
             tier, rank, lp, total_lp = get_lp_info(ranked)
             tier, _ = await _refresh_apex_after_match(session, riot_id, tracked, tier, lp)
             _store_current_rank(riot_id, tier, rank, lp, total_lp)
-            data.setdefault("daily_lp", {}).setdefault(riot_id, {}).setdefault(str(today_ist()), total_lp)
+            record_rank_snapshot(data, riot_id, total_lp, now_ist())
             return {"tier": tier, "rank": rank, "lp": lp, "total_lp": total_lp}
 
         async def view_factory(snapshot):
@@ -602,15 +602,10 @@ async def daily_summary_task():
     # the report is for yesterday's games.
     today_date = today_ist()
     yesterday_date = today_date - timedelta(days=1)
-    today_str = str(today_date)
     yesterday_str = str(yesterday_date)
 
-    for riot_id, info in list(data["tracked"].items()):
-        today_lp = data.get("daily_lp", {}).get(riot_id, {}).get(today_str)
-        yesterday_lp = data.get("daily_lp", {}).get(riot_id, {}).get(yesterday_str)
-        # If we don't have a fresh "today" snapshot yet, fall back to last_known_lp.
-        if today_lp is None:
-            today_lp = info.get("last_known_lp", 0)
+    for riot_id in list(data["tracked"]):
+        start_lp, end_lp = daily_boundaries(data, riot_id, yesterday_date)
 
         history_all = data.get("history", {}).get(riot_id, [])
         history_yesterday = [
@@ -623,8 +618,8 @@ async def daily_summary_task():
 
         view = DailyReportView(
             riot_id,
-            today_lp,
-            yesterday_lp,
+            end_lp,
+            start_lp,
             history_yesterday,
             history_all,
             report_date=yesterday_date,

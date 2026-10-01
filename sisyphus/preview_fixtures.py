@@ -64,3 +64,27 @@ def duo_fixture(scenario="victory"):
         parts[1]["visionScore"] = None
     return {"key": f"{match_id}:100", "match": match, "team_id": 100,
             "outcome": outcome, "members": roster}
+
+
+def daily_fixture(scenario="victory"):
+    """Fictional daily-report data for the reusable renderer."""
+    from datetime import date, timedelta
+    day = str(date.today() - timedelta(days=1))
+    opening, closing = 1844, 1865
+    result, delta = "WIN", "+21"
+    if scenario == "defeat":
+        closing, result, delta = 1823, "LOSS", "-21"
+    elif scenario == "remake":
+        closing, result, delta = 1844, "DRAW", "+0"
+    elif scenario == "missing-data":
+        opening, closing, delta = None, None, None
+    row = {"date": day, "match_id": "daily-fixture-" + scenario,
+           "champion": "Ahri", "result": result, "lp_change": delta,
+           "lp_status": "known" if delta is not None else "unavailable",
+           "duration": 76 if scenario == "remake" else 1800,
+           "kills": 4, "deaths": 2, "assists": 8}
+    history = [row]
+    if scenario == "missing-data":
+        history.append({**row, "match_id": "known-partial", "champion": "Zoe", "lp_change": "+18", "lp_status": "known"})
+    return {"riot_id": "Preview Player", "report_date": day,
+            "start_lp": opening, "end_lp": closing, "history": history, "history_all": history}

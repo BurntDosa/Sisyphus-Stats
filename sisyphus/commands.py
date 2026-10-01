@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from .bot import bot, get_post_destination
+from .daily_report import daily_boundaries, merge_daily_history, record_rank_snapshot
 from .betting import (
     active_bets_embed,
     audit_embed,
@@ -369,7 +370,7 @@ async def cmd_track(ctx, *, riot_id: str):
     if last_id:
         posted_matches.add(last_id)
     today_str = str(today_ist())
-    data.setdefault("daily_lp", {}).setdefault(key, {})[today_str] = total_lp
+    record_rank_snapshot(data, key, total_lp, now_ist())
     history_rows = data.setdefault("history", {}).setdefault(key, [])
     existing_ids = {h.get("match_id") for h in history_rows}
     cutoff = today_ist() - timedelta(days=BACKFILL_DAYS)
@@ -507,7 +508,7 @@ async def cmd_stats(ctx, *, target: str | None = None):
     today_lp = data.get("daily_lp", {}).get(key, {}).get(today_str, total_lp)
     yesterday_lp = data.get("daily_lp", {}).get(key, {}).get(yesterday_str)
     fallback_diff = today_lp - (yesterday_lp if yesterday_lp is not None else today_lp)
-    recent_ranked = [m for m in recent if m.get("game_type") == "SOLORANKED"]
+    recent_ranked = [m for m in (recent or []) if m.get("game_type") == "SOLORANKED"]
     h_all = data.get("history", {}).get(key, [])
     h_today = recent_today_history(
         recent_ranked,
@@ -552,15 +553,18 @@ async def cmd_dailyreport(ctx, *, target: str | None = None):
     if err:
         await ctx.send(err)
         return
-    today_str = str(today_ist())
-    yesterday_str = str(today_ist() - timedelta(days=1))
-    today_lp = data.get("daily_lp", {}).get(key, {}).get(today_str, 0)
-    yesterday_lp = data.get("daily_lp", {}).get(key, {}).get(yesterday_str)
     info = data["tracked"][key]
     async with aiohttp.ClientSession() as session:
         recent = await get_recent_matches(
             session, info.get("game_name"), info.get("tag_line"), count=20
         )
+        ranked = await get_ranked_stats(session, info.get("game_name"), info.get("tag_line"))
+    if ranked is not None:
+        _, _, _, total_lp = get_lp_info(ranked)
+        record_rank_snapshot(data, key, total_lp, now_ist())
+        save_data(data)
+    report_date = today_ist()
+    start_lp, end_lp = daily_boundaries(data, key, report_date)
     recent_ranked = [m for m in recent if m.get("game_type") == "SOLORANKED"]
     h_all = data.get("history", {}).get(key, [])
     h_today = recent_today_history(
@@ -570,8 +574,9 @@ async def cmd_dailyreport(ctx, *, target: str | None = None):
         info.get("puuid"),
         h_all,
     )
-    view = DailyReportView(key, today_lp, yesterday_lp, h_today, h_all)
-    await ctx.send(embed=view._summary_embed(), view=view)
+    h_today = merge_daily_history(h_all, h_today, report_date)
+    view = DailyReportView(key, end_lp, start_lp, h_today, h_all, report_date=report_date)
+    view.message = await ctx.send(embed=view._summary_embed(), view=view)
 
 
 @bot.hybrid_command(name="report", help="Report a bot issue or wrong match outcome")

@@ -7,6 +7,7 @@ import aiohttp
 import discord
 
 from .config import BETTING_ENABLED, DASHBOARD_URL, DEVELOPER_DISCORD_ID
+from .daily_report import DailyReportView
 from .ddragon import build_composite_items_image, champion_icon_url
 from .community import praise_lines
 from .outcome import compute_net_lp, match_outcome, outcome_icon
@@ -454,130 +455,6 @@ class ScoreboardView(discord.ui.View):
                     pass
         else:
             await _hide_timed_out_view(self, "ScoreboardView")
-
-
-class DailyReportView(discord.ui.View):
-    """Daily summary with a 'Recent History' tab."""
-
-    def __init__(
-        self, riot_id, today_lp, yesterday_lp, history_today, history_all, report_date=None
-    ):
-        super().__init__(timeout=180)
-        self.riot_id = riot_id
-        self.today_lp = today_lp
-        self.yesterday_lp = yesterday_lp
-        self.history_today = history_today
-        self.history_all = history_all
-        self.report_date = report_date or today_ist()
-        self.message = None
-
-    def _summary_embed(self):
-        fallback_diff = self.today_lp - (
-            self.yesterday_lp if self.yesterday_lp is not None else self.today_lp
-        )
-        diff = compute_net_lp(self.history_today, fallback_diff)
-        color = 0x57F287 if diff >= 0 else 0xED4245
-        sign = "+" if diff >= 0 else ""
-
-        wins = sum(1 for h in self.history_today if h["result"] == "WIN")
-        losses = sum(1 for h in self.history_today if h["result"] == "LOSS")
-        draws = sum(1 for h in self.history_today if h["result"] == "DRAW")
-
-        e = discord.Embed(
-            title="Daily Report",
-            description=f"**{self.report_date.strftime('%A, %B %d %Y')}**",
-            color=color,
-            timestamp=now_ist(),
-        )
-        e.set_author(name=self.riot_id, icon_url=tier_image_url(tier_for_total_lp(self.today_lp)))
-
-        e.add_field(name="Games", value=f"**{wins + losses + draws}**", inline=True)
-        e.add_field(
-            name="W / L / D",
-            value=f"`✅ {wins}`  `❌ {losses}`  `➖ {draws}`",
-            inline=True,
-        )
-        e.add_field(name="Net LP", value=f"**`{sign}{diff} LP`**", inline=True)
-
-        if self.yesterday_lp is not None:
-            e.add_field(
-                name="Previous LP",
-                value=f"`{format_total_lp(self.yesterday_lp)}`",
-                inline=True,
-            )
-        e.add_field(
-            name="Current LP",
-            value=f"`{format_total_lp(self.today_lp)}`",
-            inline=True,
-        )
-        e.add_field(name="​", value="​", inline=True)
-
-        decisive_history_today = [
-            h for h in self.history_today if h.get("result") != "DRAW"
-        ]
-        if decisive_history_today:
-            lines = []
-            for i, h in enumerate(decisive_history_today, 1):
-                icon = outcome_icon(h.get("result"))
-                lpc = h.get("lp_change")
-                lpc_str = "?" if lpc is None else lpc
-                context = ""
-                if h.get("kills") is not None and h.get("deaths") is not None:
-                    context = f" · `{h.get('kills', 0)}/{h.get('deaths', 0)}/{h.get('assists', 0)}`"
-                lines.append(f"`{i}.` {icon} **{h['champion']}** `{lpc_str} LP`{context}")
-            if lines:
-                e.add_field(name="Match History", value="\n".join(lines), inline=False)
-
-        blocks = min(abs(diff) // 5, 20)
-        bar = ("■" if diff >= 0 else "□") * blocks or "▪"
-        e.add_field(name="Progress", value=bar, inline=False)
-        e.set_footer(text="Ranked Solo/Duo only")
-        return e
-
-    def _history_embed(self):
-        e = discord.Embed(
-            title="Recent History", color=0x5865F2, timestamp=now_ist()
-        )
-        e.set_author(name=self.riot_id, icon_url=tier_image_url(tier_for_total_lp(self.today_lp)))
-        recent = [h for h in self.history_all[::-1] if h.get("result") != "DRAW"]
-        if not recent:
-            e.description = "No games recorded yet."
-        else:
-            lines = []
-            for h in recent[:10]:
-                icon = outcome_icon(h.get("result"))
-                lpc = h.get("lp_change")
-                lpc_str = "?" if lpc is None else lpc
-                details = ""
-                if h.get("cs_per_min") or h.get("kill_participation"):
-                    details = f" · `{h.get('cs_per_min', 0):.1f} CS/min` · `{h.get('kill_participation', 0):.0f}% KP`"
-                lines.append(
-                    f"{icon} **{h['champion']}** `{lpc_str} LP`{details}  _{h.get('date', '')}_"
-                )
-            e.description = "\n".join(lines)
-        return e
-
-    @discord.ui.button(
-        label="📊 Summary", style=discord.ButtonStyle.primary, custom_id="summary", row=0
-    )
-    async def btn_summary(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        await interaction.response.edit_message(embed=self._summary_embed(), view=self)
-
-    @discord.ui.button(
-        label="📜 Recent History",
-        style=discord.ButtonStyle.secondary,
-        custom_id="history",
-        row=0,
-    )
-    async def btn_history(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        await interaction.response.edit_message(embed=self._history_embed(), view=self)
-
-    async def on_timeout(self):
-        await _hide_timed_out_view(self, "DailyReportView")
 
 
 class StatsTabsView(discord.ui.View):
