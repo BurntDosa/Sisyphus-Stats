@@ -698,6 +698,7 @@ class HelpView(discord.ui.View):
                 "• `/profile [target]` — View a Sisyphus-observed player profile.\n"
                 "• `/dailyreport [target]` — Force a daily report card.\n"
                 "• `/role <lane>` — DM a random champion with current runes and build. "
+                "• `/teams <players>` — Balance custom-game teams from ranks.\n"
                 "Use `top`, `mid`, `jgl`, `adc`, `supp`, or `wild`."
             ),
             inline=False,
