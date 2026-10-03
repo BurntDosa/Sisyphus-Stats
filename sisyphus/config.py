@@ -86,7 +86,7 @@ if PLATFORM not in RIOT_PLATFORMS:
     RIOT_PLATFORMS.insert(0, PLATFORM)
 
 # Release notes are reviewed files in release_notes/, with no runtime AI request.
-APP_VERSION = os.getenv("APP_VERSION", "2.3.0")
+APP_VERSION = os.getenv("APP_VERSION", "2.3.1")
 STATUS_PAGE_ENABLED = os.getenv("STATUS_PAGE_ENABLED", "false").strip().lower() in {
     "1",
     "true",

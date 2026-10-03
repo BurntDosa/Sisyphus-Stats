@@ -604,13 +604,23 @@ class HelpView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
         self.message = None
+        self.teams_page = "start"
+        self.remove_item(self.teams_guide)
         if not BETTING_ENABLED:
             self.remove_item(self.btn_betting)
 
     def _update_button_colors(self, active_button: discord.ui.Button):
+        if active_button == self.btn_teams:
+            if self.teams_guide not in self.children:
+                self.add_item(self.teams_guide)
+            for option in self.teams_guide.options:
+                option.default = option.value == self.teams_page
+        else:
+            self.remove_item(self.teams_guide)
         buttons = [
             self.btn_overview,
             self.btn_tracking,
+            self.btn_teams,
             self.btn_community,
             self.btn_reporting,
         ]
@@ -645,7 +655,7 @@ class HelpView(discord.ui.View):
         )
         e.add_field(
             name="Custom Games",
-            value="• `/teams` — Select VC members or add players manually, review tiers and lanes, then post balanced 4v4/5v5 teams.",
+            value="• `/teams` — Build balanced 4v4 or 5v5 teams. Open the **Teams** tab for the form guide and examples.",
             inline=False,
         )
         e.add_field(
@@ -759,6 +769,41 @@ class HelpView(discord.ui.View):
         e.set_footer(text="Live Game Room, Queue Beacon, and praise highlights are automatic.")
         return e
 
+    def _teams_embed(self):
+        pages = {
+            "start": ("Start", "Build balanced **4v4** or **5v5** teams for a custom game.", [
+                ("Open the setup", "`/teams` → **Use my VC** or **Add players manually**.\nThen select **Choose players**.", False),
+                ("5v5", "Exactly **10 players**", True),
+                ("4v4", "Exactly **8 players**", True),
+                ("Your next steps", "**1.** Fill in the player form.\n**2.** Review ranks and lanes.\n**3.** Generate your teams.\n**4.** Select **Post teams** when ready.", False),
+            ]),
+            "form": ("Fill in the form", "Complete these fields in **Choose players**.", [
+                ("Game format", "Choose **5v5** (10 players) or **4v4** (8 players).", True),
+                ("Omitted lane", "Choose the unused lane for **4v4**.\nIgnored for 5v5.", True),
+                ("Players", "Check only the VC members who will play.\nUse the roster pages if your VC has more than 10 people.", False),
+                ("Add server members", "Select Discord users who are not in the VC, or build your manual roster here.\nUnlinked players need a tier estimate during review.", False),
+                ("Guests, tracked Riot IDs, or tier overrides", "Separate entries with commas. For example:\n```text\nAlex=Gold, Sam=Silver, GameName#TAG\n```\n• `Alex=Gold` — named guest with an estimate\n• `Silver` — unnamed guest\n• `GameName#TAG` — player already tracked by Sisyphus\n• `2=Platinum` — estimate for roster player 2\n\nUse tiers such as **Silver** or **Gold**. Divisions and LP are not needed.", False),
+            ]),
+            "review": ("Review & post", "Check your roster before you share the teams.", [
+                ("Resolve rank warnings", "Linked accounts use their current ranked tier.\n**Review needed** → choose a player → **Edit tier** or **Use saved tier**.\nUnranked players and unlinked guests need an estimate.", False),
+                ("Choose lanes", "**Edit player → Edit lanes**\n• Primary: a lane or **Flexible**\n• Secondary: a different lane or **None**\n\nSuggestions come from stored ranked history. You can change them.", False),
+                ("Generate & adjust", "Select **Generate teams** with exactly 8 or 10 confirmed tiers.\n**Rank balance comes first**, then lane preferences.\n• **Reroll:** another equally best split, when available\n• **Edit:** roster, ranks, **Swap sides**, or **Review notices**", False),
+                ("Post when ready", "**Post teams** sends **Team 1** and **Team 2** to the command's channel.\nPlayer names and roles are public. Tiers stay private.", False),
+            ]),
+        }
+        title, description, fields = pages[self.teams_page]
+        e = discord.Embed(
+            title=f"⚔️ Teams · {title}",
+            description=description,
+            color=0x5865F2,
+            timestamp=now_ist(),
+        )
+        for name, value, inline in fields:
+            e.add_field(name=name, value=value, inline=inline)
+        page_number = list(pages).index(self.teams_page) + 1
+        e.set_footer(text=f"Guide {page_number}/3 · Setup is owner-only and expires after 10 minutes")
+        return e
+
     def _betting_embed(self):
         from .betting import DAILY_FLOOR, INITIAL_BALANCE, MAX_STAKE, MIN_STAKE
 
@@ -856,7 +901,34 @@ class HelpView(discord.ui.View):
         await interaction.response.edit_message(embed=self._tracking_embed(), view=self)
 
     @discord.ui.button(
-        label="🤝 Community", style=discord.ButtonStyle.secondary, custom_id="help_community", row=0
+        label="⚔️ Teams", style=discord.ButtonStyle.secondary, custom_id="help_teams", row=0
+    )
+    async def btn_teams(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        self.teams_page = "start"
+        self._update_button_colors(button)
+        await interaction.response.edit_message(embed=self._teams_embed(), view=self)
+
+    @discord.ui.select(
+        placeholder="Choose a Teams guide page",
+        custom_id="help_teams_guide",
+        row=2,
+        options=[
+            discord.SelectOption(label="1 · Start", value="start", description="Open a private setup and choose your roster"),
+            discord.SelectOption(label="2 · Fill in the form", value="form", description="Player selection, guests, ranks, and examples"),
+            discord.SelectOption(label="3 · Review & post", value="review", description="Check ranks and lanes, then generate and share"),
+        ],
+    )
+    async def teams_guide(
+        self, interaction: discord.Interaction, select: discord.ui.Select
+    ):
+        self.teams_page = select.values[0]
+        self._update_button_colors(self.btn_teams)
+        await interaction.response.edit_message(embed=self._teams_embed(), view=self)
+
+    @discord.ui.button(
+        label="🤝 Community", style=discord.ButtonStyle.secondary, custom_id="help_community", row=1
     )
     async def btn_community(
         self, interaction: discord.Interaction, button: discord.ui.Button
@@ -865,7 +937,7 @@ class HelpView(discord.ui.View):
         await interaction.response.edit_message(embed=self._community_embed(), view=self)
 
     @discord.ui.button(
-        label="💰 Betting", style=discord.ButtonStyle.secondary, custom_id="help_betting", row=0
+        label="💰 Betting", style=discord.ButtonStyle.secondary, custom_id="help_betting", row=1
     )
     async def btn_betting(
         self, interaction: discord.Interaction, button: discord.ui.Button
@@ -874,7 +946,7 @@ class HelpView(discord.ui.View):
         await interaction.response.edit_message(embed=self._betting_embed(), view=self)
 
     @discord.ui.button(
-        label="📋 Reporting", style=discord.ButtonStyle.secondary, custom_id="help_reporting", row=0
+        label="📋 Reporting", style=discord.ButtonStyle.secondary, custom_id="help_reporting", row=1
     )
     async def btn_reporting(
         self, interaction: discord.Interaction, button: discord.ui.Button
