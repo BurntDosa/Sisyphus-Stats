@@ -123,3 +123,22 @@ npm --prefix dashboard/web run typecheck
 ```
 
 Use `uv` for Python dependency changes. Do not start a second bot process when the supervisor is active.
+
+
+### Custom-game teams
+
+`/teams` (or `!teams`) opens a private setup. Choose **Use my VC** or
+**Add players manually**, then select exactly eight or ten people. Guests can
+be entered as `Alex=Gold`; linked Discord users and tracked Riot IDs use their
+Solo/Duo tier. Divisions and LP do not affect balancing. Saved tiers require
+confirmation when the provider is unavailable.
+
+Review or edit primary/secondary lanes suggested from Sisyphus history. In
+4v4, choose the lane omitted from both teams. Rank fairness takes priority;
+off-role assignments are flagged. Generate, reroll equally best splits, swap
+sides, and choose **Post teams** to share the result without pinging players.
+Setup expires after ten minutes. No League-client access is needed.
+
+Team-balancing foundation contributed by
+[Saarthak-Khandelwal](https://github.com/Saarthak-Khandelwal) in
+[the original PR](https://github.com/BurntDosa/Sisyphus-Stats/pull/1).

@@ -1,152 +1,227 @@
-"""Smoke test for /teams roster parsing and embeds (no network, fake bot state)."""
-from __future__ import annotations
-
+"""Focused /teams checks. Synthetic state only; no providers or Discord sends."""
 import asyncio
+import copy
+import itertools
+import json
+import random
 import sys
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from sisyphus.balance import Player, TIERS, ROLES, balance, parse_tier
+from sisyphus.team_roster import Roster, history_lanes, refresh_ranks
+from sisyphus.teams import TeamsView, RosterModal, PlayerModal, unresolved_deliveries
 
-from sisyphus import ranks, teams  # noqa: E402
-from sisyphus.balance import APEX_BASE, parse_rank  # noqa: E402
+def raises(call):
+    try: call()
+    except ValueError: return
+    raise AssertionError('Expected rejection')
 
-FAKE = {
-    "tracked": {
-        # Master with and without the legacy phantom division in the stored total
-        "Mast#1": {"last_known_lp": 3250, "last_known_tier": "MASTER", "last_known_rank": "1", "last_known_raw_lp": 150},
-        "MastNoDiv#1": {"last_known_lp": 2950, "last_known_tier": "MASTER", "last_known_rank": "", "last_known_raw_lp": 150},
-        "GM#1": {"last_known_lp": 4100, "last_known_tier": "GRANDMASTER", "last_known_rank": "1", "last_known_raw_lp": 600},
-        "Chal#1": {"last_known_lp": 5000, "last_known_tier": "CHALLENGER", "last_known_rank": "1", "last_known_raw_lp": 1100},
-        "Gold#1": {"last_known_lp": 1440, "last_known_tier": "GOLD", "last_known_rank": "2", "last_known_raw_lp": 40},
-        "Unranked#1": {"last_known_lp": 0, "last_known_tier": "UNRANKED", "last_known_rank": "", "last_known_raw_lp": 0},
-        "Hide on bush#KR1": {"last_known_lp": 2640, "last_known_tier": "DIAMOND", "last_known_rank": "2", "last_known_raw_lp": 40},
-    },
-    "links": {"111": "Mast#1", "222": "GM#1", "333": "Gone#9"},  # 333 points at an untracked id
-}
-teams.data = FAKE  # never touch the real bot state
+def embed_ok(e):
+    assert len(e)<=6000
+    assert len(e.fields)<=25
+    assert all(len(f.value)<=1024 and len(f.name)<=256 for f in e.fields)
 
+class Response:
+    def __init__(self): self.calls=[]
+    async def send_message(self,*args,**kwargs): self.calls.append((args,kwargs))
+    async def edit_message(self,**kwargs): self.calls.append(kwargs)
+    async def defer(self,**kwargs): self.calls.append(kwargs)
 
-def expect_error(raw: str, fragment: str = "") -> None:
-    try:
-        teams.build_roster(raw)
-    except ValueError as exc:
-        assert fragment.lower() in str(exc).lower(), (raw, str(exc))
-        return
-    raise AssertionError(f"{raw!r} should have failed")
+def interaction(user=1):
+    return SimpleNamespace(user=SimpleNamespace(id=user),response=Response(),followup=Response())
 
+class Message:
+    author=SimpleNamespace(id=999)
+    jump_url='https://example.invalid/message'
+    next_id=100
+    def __init__(self):
+        self.edits=[];self.id=Message.next_id;Message.next_id+=1
+        self.nonce=None
+    async def edit(self,**kwargs): self.edits.append(kwargs)
 
-def rating(raw: str) -> int:
-    return teams.build_roster(raw)[0].rating
+class Destination:
+    id=500
+    def __init__(self): self.messages=[];self.calls=0;self.fail_at=None;self.scan_fail=False;self.return_nonce=True
+    async def send(self,**kwargs):
+        self.calls+=1
+        assert 'view' not in kwargs and 'content' not in kwargs
+        assert kwargs['allowed_mentions'].everyone is False
+        msg=Message();msg.nonce=kwargs.get('nonce') if self.return_nonce else None
+        msg.embed=kwargs['embed'];self.messages.append(msg)
+        if self.calls==self.fail_at: raise TimeoutError('uncertain send')
+        return msg
+    async def fetch_message(self,message_id):
+        return next(msg for msg in self.messages if msg.id==message_id)
+    async def history(self,**kwargs):
+        if self.scan_fail: raise RuntimeError('no read history')
+        for msg in self.messages: yield msg
 
+async def main():
+    assert parse_tier('Iron')=='IRON' and parse_tier('g2')=='GOLD'
+    assert parse_tier('Grandmaster')=='GRANDMASTER'
+    raises(lambda:parse_tier('unknown')); raises(lambda:parse_tier('Silver 5'))
+    for n in (8,10):
+        players=[Player(str(i),'Same',TIERS[i%10],(ROLES[i%5],ROLES[(i+1)%5])) for i in range(n)]
+        splits=balance(players,omitted='supp')
+        minimum=min(abs(sum(players[i].rating for i in a)-sum(players[i].rating for i in range(n) if i not in a)) for a in itertools.combinations(range(n),n//2))
+        assert all(s.gap==minimum and s.score==splits[0].score for s in splits)
+        rosters=set()
+        for s in splits:
+            assert {x.player.identity for x in (*s.team_a,*s.team_b)}=={p.identity for p in players}
+            assert len({x.role for x in s.team_a})==n//2
+            assert len({x.role for x in s.team_b})==n//2
+            if n==8: assert all(x.role!='supp' for x in (*s.team_a,*s.team_b))
+            partition=tuple(sorted(x.player.identity for x in s.team_a));assert partition not in rosters;rosters.add(partition)
+    raises(lambda:balance([Player('x','A','IRON')]*10))
+    raises(lambda:balance([Player(str(i),'A','IRON') for i in range(6)]))
+    iron=balance([Player(str(i),'Same','IRON') for i in range(10)])
+    assert iron and iron[0].gap==0
+    rows=[{'match_id':str(i),'position':lane,'result':'WIN','date':f'2026-09-{i+1:02}'} for i,lane in enumerate(('TOP','JUNGLE','TOP','JUNGLE'))]
+    rows+= [rows[-1],{'match_id':'remake','position':'MID','result':'DRAW'},{'match_id':'flex','position':'MID','result':'WIN','queue':'RANKED_FLEX_SR'},{'match_id':'unknown','result':'WIN'}]
+    assert history_lanes(rows)==('jgl','top')
+    state={'tracked':{'Same#ONE':{'puuid':'one','last_known_tier':'IRON'},'Same#TWO':{'puuid':'two','last_known_tier':'GOLD'}},'links':{'1':'Same#ONE','2':'Same#TWO','3':'stale','4':'Same#ONE'},'history':{'Same#ONE':rows}}
+    before=json.dumps(state,sort_keys=True); roster=Roster(state)
+    members=[SimpleNamespace(id=i,display_name=f'Player {i}',bot=False,voice=None) for i in range(1,24)]
+    lookup=lambda i:next((m for m in members if m.id==i),None)
+    e1=roster.resolve(user_id=1,name='Same');e2=roster.resolve(user_id=2,name='Same')
+    assert e1.identity!=e2.identity and e1.tier=='IRON'
+    assert roster.key_for_user(3) is None and state['links']['3']=='stale'
+    extras=roster.extras('Same#ONE, Same#TWO, Guest=Silver, Gold',[],[],lookup)
+    assert len(extras)==4 and extras[-1].name=='Guest 1'
+    raises(lambda:roster.extras('Same#ONE, <@1>',[],[],lookup))
+    raises(lambda:roster.extras('1=Gold',[],[],lookup))
+    raises(lambda:roster.extras('Somebody',[],[],lookup))
+    async def failure(info): return None
+    await refresh_ranks([e1,e2],state,failure)
+    assert not e1.confirmed and e1.source=='Saved tier — confirm'
+    async def unranked(info): return []
+    await refresh_ranks([e1],state,unranked);assert e1.tier is None
+    async def fresh(info): return [{'queueType':'RANKED_SOLO_5x5','tier':'IRON','leaguePoints':0}]
+    await refresh_ranks([e1],state,fresh);assert e1.tier=='IRON' and e1.confirmed
+    e2.source='Manual estimate';e2.confirmed=True
+    await refresh_ranks([e2],state,failure);assert e2.tier=='GOLD' and e2.confirmed
+    guild=SimpleNamespace(id=100,get_member=lookup)
+    dest=Destination();v=TeamsView(1,guild,dest,state,fetch=fresh,fixture_members=members)
+    v.message=Message()
+    private=[]
+    async def private_send(**kwargs):
+        assert 'view' not in kwargs
+        msg=Message();private.append(msg);return msg
+    v.result_sender=private_send
+    assert len(v.children)==2
+    assert v.deadline-time.monotonic()<=600
+    assert not await v.interaction_check(interaction(2))
+    await v.action(interaction(),'vc');assert len(v.candidates)==23
+    modal=RosterModal(v);assert len(modal.children)==5
+    assert len(modal.checks.options)==10
+    await v.action(interaction(),'next'); assert v.page==1
+    modal2=RosterModal(v);assert len(modal2.checks.options)==10
+    await v.action(interaction(),'next');assert len(RosterModal(v).checks.options)==3
+    assert not await modal.interaction_check(interaction(2))
+    v.entries=[roster.resolve(name=('X'*60)+str(i)) for i in range(10)]
+    for e in v.entries: e.tier='GOLD';e.confirmed=True;e.source='Manual estimate'
+    v.stage='review';v.rebuild();embed_ok(v.embed())
+    assert len(v.children)==3
+    assert 'GOLD' not in str(v.embed().to_dict()).upper()
+    assert 'Manual estimate' not in str(v.embed().to_dict())
+    v.entries[1].confirmed=False
+    v.rebuild();assert any(c.label=='Review needed' for c in v.children)
+    assert '1 player needs a tier check' in v.embed().description
+    v.selected=v.entries[0].identity
+    await v.action(interaction(),'exceptions');assert 'Confirm saved tier' in v.embed().description
+    assert v.selected==v.entries[1].identity
+    selector=next(c for c in v.children if hasattr(c,'options'))
+    assert [o.value for o in selector.options]==[v.entries[1].identity]
+    assert selector.options[0].default
+    # Filtered selector values remain stable identities, not filtered indexes.
+    v.entries[3].confirmed=False;v.stage='review';v.rebuild()
+    assert '2 players need a tier check' in v.embed().description
+    await v.action(interaction(),'exceptions')
+    selector=next(c for c in v.children if hasattr(c,'options'))
+    assert {o.value for o in selector.options}=={v.entries[1].identity,v.entries[3].identity}
+    selector._values=[v.entries[3].identity]
+    await selector.callback(interaction())
+    assert v.selected==v.entries[3].identity and v.stage=='player'
+    assert 'Gold' in v.embed().description and any(getattr(c,'label',None)=='Use saved tier' for c in v.children)
+    await v.action(interaction(),'confirm');assert v.entries[3].confirmed and v.stage=='review'
+    await v.action(interaction(),'exceptions')
+    selector=next(c for c in v.children if hasattr(c,'options'))
+    assert [o.value for o in selector.options]==[v.entries[1].identity]
+    selector._values=[v.entries[1].identity];await selector.callback(interaction())
+    await v.action(interaction(),'confirm');assert v.entries[1].confirmed and v.stage=='review'
+    assert len(PlayerModal(v,'tier').children)==1
+    assert len(PlayerModal(v,'lanes').children)==2
+    await v.action(interaction(),'generate');assert v.splits
+    embed_ok(v.embed())
+    assert len(private)==2 and len(v.children)==3
+    for i,embed in enumerate(v.team_embeds()):
+        embed_ok(embed);assert embed.title==f'Team {i+1}'
+        assert not embed.fields and not embed.footer and not embed.timestamp
+        assert len(embed.description.splitlines())==5
+        assert all(' — ' in line for line in embed.description.splitlines())
+        assert 'GOLD' not in str(embed.to_dict()).upper()
+    first=v.splits[v.index];await v.action(interaction(),'reroll');assert v.splits[v.index]!=first
+    assert len(private)==2 and all(msg.edits for msg in private)
+    await v.action(interaction(),'swap');assert v.flipped
+    v.selected=v.entries[0].identity
+    stale=PlayerModal(v,'tier');await v.action(interaction(),'confirm')
+    assert not await stale.interaction_check(interaction()) and not v.splits
+    v.entries=v.entries[:8];v.size=8;v.omitted='top';v.entries[0].roles=('top','mid')
+    await v.action(interaction(),'generate');assert any('omitted primary' in n for n in v.notices())
+    dest.fail_at=2
+    try: await v.publish()
+    except TimeoutError: pass
+    else: raise AssertionError('uncertain second send not simulated')
+    assert dest.calls==2 and len(dest.messages)==2
+    assert v.delivery['teams'][0]['message_id']==dest.messages[0].id
+    assert unresolved_deliveries(1,100)
+    assert not await v.interaction_check(SimpleNamespace(user=SimpleNamespace(id=1),response=Response(),data={'custom_id':v.cid('reroll')}))
+    recovered=await v.publish();assert len(recovered)==2 and dest.calls==2
+    assert not unresolved_deliveries(1,100)
+    assert len({slot['nonce'] for slot in v.delivery['teams']})==2
+    # Missing nonce cannot establish an uncertain accepted send: fail closed,
+    # including after the nonce duplicate-protection interval has passed.
+    uncertain=TeamsView(1,guild,Destination(),state,fixture_members=members)
+    uncertain.message=Message();uncertain.entries=copy.deepcopy(v.entries);uncertain.size=8
+    uncertain.splits=v.splits;uncertain.destination.fail_at=1;uncertain.destination.return_nonce=False
+    try: await uncertain.publish()
+    except TimeoutError: pass
+    uncertain.delivery['teams'][0]['attempted_at']-=4000
+    try: await uncertain.publish()
+    except RuntimeError: pass
+    else: raise AssertionError('must refuse resend without verified identity')
+    assert uncertain.destination.calls==1 and unresolved_deliveries(1,100)
+    uncertain.destination.scan_fail=True
+    try: await uncertain.publish()
+    except RuntimeError: pass
+    else: raise AssertionError('must refuse resend without history verification')
+    assert uncertain.destination.calls==1
+    v.deadline=time.monotonic()-1
+    assert not await v.interaction_check(interaction())
+    await v.finish();assert all(c.disabled for c in v.children)
+    p=TeamsView(1,guild,dest,state,preview=True,fixture_members=members)
+    assert p.ns!=v.ns
+    preview_messages=[]
+    async def preview_send(**kwargs):
+        m=Message();preview_messages.append(m);return m
+    p.result_sender=preview_send;p.message=Message()
+    journals_before={f.name:f.read_bytes() for f in Path('.automation/teams-deliveries').glob('*.json')}
+    p.entries=copy.deepcopy(v.entries);p.size=8;p.omitted='top';p.stage='review'
+    await p.action(interaction(),'generate');assert len(preview_messages)==2
+    await p.action(interaction(),'reroll');assert len(preview_messages)==2 and all(m.edits for m in preview_messages)
+    await p.action(interaction(),'swap');assert all(len(m.edits)>=2 for m in preview_messages)
+    await p.action(interaction(),'post');assert dest.calls==2
+    assert journals_before=={f.name:f.read_bytes() for f in Path('.automation/teams-deliveries').glob('*.json')}
+    # Actual hard timer, independent of interactions extending discord View timeouts.
+    p.deadline=time.monotonic()+0.01
+    await p.expire();assert p.closed
+    assert len(private)==2
+    assert all(not hasattr(msg,'children') for msg in private)
+    assert json.dumps(state,sort_keys=True)==before
+    assert 'sisyphus.state' not in sys.modules
+    print('Teams smoke passed: inputs, optimality, lanes, rank failures, paging, ownership, stale forms, send recovery, preview expiry, state integrity.')
 
-def check_stored_ratings() -> None:
-    # Apex totals are read from raw LP, so every stored shape agrees with typing the rank
-    assert rating("Mast#1") == rating("MastNoDiv#1") == parse_rank("m150") == 2950
-    assert rating("GM#1") == parse_rank("gm 600") == APEX_BASE + 600
-    assert rating("Chal#1") == parse_rank("c 1100") == APEX_BASE + 1100
-    assert rating("Gold#1") == 1440
-    assert rating("Hide on bush#KR1") == 2640  # names with spaces
-    assert rating("Mast#1=g2") == parse_rank("g2")  # explicit rank overrides stored
-    assert rating("<@111>") == 2950 and rating("<@!111>") == 2950  # mention forms
-    assert rating("<@999>=plat 4") == parse_rank("p4")  # unlinked user, rank typed
-    # the bot may return Master but with a stale total, raw LP still wins
-    assert rating("Mast#1:mid") == 2950
-
-
-def check_errors() -> None:
-    expect_error("Unranked#1", "no recorded rank")
-    expect_error("<@999>", "isn't tracked or linked")
-    expect_error("<@333>", "isn't tracked or linked")  # link to a player that no longer exists
-    expect_error("Nobody#1", "isn't tracked")
-    expect_error("Bob=", "missing a rank")
-    expect_error("Bob=banana", "can't read rank")
-    expect_error("Bob=g2:carry", "unknown role")
-    expect_error("", "list the players")
-    expect_error(" , ,, ", "list the players")
-    # same person twice, however they are written
-    expect_error("<@111>, Mast#1", "more than once")
-    expect_error("Mast#1, Mast#1", "more than once")
-    expect_error("Bob=g2, bob=p1", "more than once")
-    expect_error("<@999>=g2, <@999>=p1", "more than once")
-
-
-def check_parsing_shapes() -> None:
-    players = teams.build_roster("A=g2:mid,top; B=Diamond IV\nC=gm 600, D=s4: jgl ")
-    assert [p.label for p in players] == ["A", "B", "C", "D"]
-    assert players[0].prefs == ("mid", "top") and players[3].prefs == ("jgl",)
-    assert players[1].rating == parse_rank("d4") and players[2].rating == APEX_BASE + 600
-    assert teams.build_roster("Trailing=g1,")[0].label == "Trailing"
-    # role lists written with commas stay attached to their player
-    commas = teams.build_roster("A=g2:mid,top,jgl, B=p1:supp/adc, C=g3")
-    assert [p.label for p in commas] == ["A", "B", "C"]
-    assert commas[0].prefs == ("mid", "top", "jgl") and commas[1].prefs == ("supp", "adc")
-    # a name that looks like a role is still a player when it has a rank
-    assert [p.label for p in teams.build_roster("A=g2:mid, Top=p1")] == ["A", "Top"]
-
-
-def check_rank_text() -> None:
-    ranks._apex_cutoffs = None
-    assert "Diamond 1" in teams._rank_text(parse_rank("d1"))
-    assert "Gold 2" in teams._rank_text(parse_rank("g2"))
-    assert "Master (150 LP)" in teams._rank_text(2950)
-    assert "Master (0 LP)" in teams._rank_text(2800)
-    ranks.set_apex_cutoffs(challenger=900, grandmaster=500)
-    try:
-        assert "Master (150 LP)" in teams._rank_text(2950)
-        assert "Grandmaster (600 LP)" in teams._rank_text(APEX_BASE + 600)
-        assert "Challenger (1100 LP)" in teams._rank_text(APEX_BASE + 1100)
-    finally:
-        ranks._apex_cutoffs = None
-
-
-async def check_view() -> None:
-    roster = ", ".join(
-        f"{name}={rank}" for name, rank in zip(
-            "ABCDEFGHIJ", ("g2", "p4", "d1", "m", "gm 600", "c 1100", "s3", "e2", "b1", "i4"))
-    )
-    view = teams.make_teams_message(42, roster)
-    first = view.current_embed()
-    assert [f.name.split()[0] for f in first.fields] == ["\U0001F7E6", "\U0001F7E5"]
-    assert "avg rating gap" in first.footer.text and not first.description
-    before = first.fields[0].value
-    view.flipped = True
-    assert view.current_embed().fields[1].value == before  # swap sides moves the teams
-    assert len(view.splits) > 1 and not view.reroll.disabled
-
-    # two players: only one split is possible, so Reroll is disabled
-    duo = teams.make_teams_message(42, "A=g2, B=p1")
-    assert duo.reroll.disabled and len(duo.splits) == 1
-
-    # roles on a non-5v5 roster are ignored with a visible note
-    noted = teams.make_teams_message(42, "A=g2:mid, B=p1, C=g3, D=g4")
-    assert "ignored" in noted.current_embed().description
-
-    # roles on a 5v5 roster show up on every line
-    roles = teams.make_teams_message(42, roster.replace("A=g2", "A=g2:mid"))
-    for field in roles.current_embed().fields:
-        assert all(r in field.value for r in ("Top", "Jungle", "Mid", "ADC", "Support"))
-
-    # very long names and mentions stay inside Discord's embed limits
-    long_names = ", ".join(f"{'N' * 300}{i}=g{(i % 4) + 1}" for i in range(5))
-    long_names += ", " + ", ".join(f"<@{10**17 + i}>=p{(i % 4) + 1}" for i in range(5))
-    big = teams.make_teams_message(42, long_names.replace("N" * 300, "N" * 300)).current_embed()
-    assert all(len(f.value) <= 1024 for f in big.fields), [len(f.value) for f in big.fields]
-    assert len(big) <= 6000
-    assert "<@" in big.fields[0].value + big.fields[1].value  # mentions are never cut in half
-
-    # an all Master+ lobby renders with LP values
-    apex = teams.make_teams_message(42, ", ".join(f"P{i}=m{i * 150}" for i in range(10))).current_embed()
-    assert "LP)" in apex.fields[0].value
-
-
-def main() -> None:
-    check_stored_ratings()
-    check_errors()
-    check_parsing_shapes()
-    check_rank_text()
-    asyncio.run(check_view())
-    print("smoke_teams: ok")
-
-
-if __name__ == "__main__":
-    main()
+if __name__=='__main__': asyncio.run(main())

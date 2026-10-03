@@ -1,7 +1,6 @@
 """All !commands — !track, !untrack, !list, !link, !unlink, !whoami, !recap, !stats, !report."""
 from __future__ import annotations
 
-import asyncio
 import re
 from datetime import datetime, timedelta
 
@@ -10,8 +9,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from . import lcu
-from .teams import make_teams_message
 from .bot import bot, get_post_destination
 from .daily_report import daily_boundaries, merge_daily_history, record_rank_snapshot
 from .betting import (
@@ -309,29 +306,6 @@ async def cmd_role(ctx: commands.Context, lane: str):
     finally:
         finish_role_roll(ctx.author.id, successful=successful)
 
-@bot.hybrid_command(name="teams", help="Balance custom-game teams: !teams @a, @b, Name=g2, ...")
-@app_commands.describe(
-    players="Comma-separated: @user, GameName#TAG, or Name=rank. Optional roles: @user:mid,top"
-)
-async def cmd_teams(ctx, *, players: str):
-    try:
-        view = make_teams_message(ctx.author.id, players)
-    except ValueError as exc:
-        await ctx.send(f"❌ {exc}", ephemeral=bool(ctx.interaction))
-        return
-    view.message = await ctx.send(embed=view.current_embed(), view=view)
-
-@bot.hybrid_command(name="getteams", help="Balance teams from the custom lobby you're in (bot PC must run the League client)")
-async def cmd_getteams(ctx):
-    await ctx.defer()
-    try:
-        raw = await asyncio.to_thread(lcu.lobby_roster_text)  # blocking local HTTP
-        view = make_teams_message(ctx.author.id, raw)
-    except ValueError as exc:  # LcuError is a ValueError
-        await ctx.send(f"❌ {exc}", ephemeral=bool(ctx.interaction))
-        return
-    roster_note = f"Roster (copy into `/teams` to tweak):\n```\n{raw}\n```"
-    view.message = await ctx.send(content=roster_note, embed=view.current_embed(), view=view)
 
 @bot.hybrid_command(name="track", help="Track a player: !track GameName#TAG")
 async def cmd_track(ctx, *, riot_id: str):
@@ -1056,3 +1030,9 @@ def unregister_disabled_betting_commands() -> None:
 
 
 unregister_disabled_betting_commands()
+
+
+@bot.hybrid_command(name="teams", help="Balance 4v4 or 5v5 teams from your VC or a manual roster")
+async def cmd_teams(ctx):
+    from .teams import start_teams
+    await start_teams(ctx, data)
