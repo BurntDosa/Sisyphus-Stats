@@ -640,6 +640,11 @@ class HelpView(discord.ui.View):
             inline=False,
         )
         e.add_field(
+            name="Custom Games",
+            value="• `/teams` — Select VC members or add players manually, review tiers and lanes, then post balanced 4v4/5v5 teams.",
+            inline=False,
+        )
+        e.add_field(
             name="Community",
             value=(
                 "Live Game Room, Queue Board, Weekly and Monthly Recaps, Squad Goals, "

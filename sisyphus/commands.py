@@ -1030,3 +1030,9 @@ def unregister_disabled_betting_commands() -> None:
 
 
 unregister_disabled_betting_commands()
+
+
+@bot.hybrid_command(name="teams", help="Balance 4v4 or 5v5 teams from your VC or a manual roster")
+async def cmd_teams(ctx):
+    from .teams import start_teams
+    await start_teams(ctx, data)
