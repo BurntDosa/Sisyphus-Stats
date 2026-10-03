@@ -68,6 +68,7 @@ ALLOWED_SLASH_COMMANDS = {
     "squadgoal",
     "stats",
     "status",
+    "teams",
     "track",
     "unlink",
     "untrack",

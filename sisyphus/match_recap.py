@@ -13,6 +13,7 @@ import discord
 
 from .ddragon import build_champion_roster_thumbnail, build_composite_items_image, champion_icon_url
 from .ranks import format_rank, tier_emoji
+from .display_icons import role_display
 
 
 def recap_digest(key: str) -> str:
@@ -145,7 +146,7 @@ def overview_embed(snapshot):
     for i, m in enumerate(roster):
         p = m["participant"]
         champ = discord.utils.escape_markdown(str(p.get("championName") or "Unknown champion"))
-        role = f" ({p['position']})" if p.get("position") else ""
+        role = f" · {role_display(p['position'])}" if p.get("position") else ""
         e.add_field(name=f"{name(m)} · {champ}{role}"[:256], value="\n".join(player_lines(snapshot, m))[:1024], inline=len(roster) == 2)
         if len(roster) == 2 and i == 0:
             # Reserve the middle inline column as a gutter between teammates.

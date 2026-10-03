@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import aiohttp
 import discord
 
+from .display_icons import role_display, role_emoji
 from .ddragon import (
     build_role_build_image,
     build_role_runes_image,
@@ -263,6 +264,8 @@ async def build_role_roll_message(
     icon_url = champion_icon_url(champion_id)
     if icon_url:
         overview.set_thumbnail(url=icon_url)
+    if role_emoji(roll.role):
+        overview.description += f"\n{role_display(roll.role)}"
     overview.add_field(name="Summoner Spells", value=_names(spell_names), inline=False)
     if roll.role == "wild":
         overview.add_field(

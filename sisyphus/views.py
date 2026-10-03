@@ -18,6 +18,7 @@ from .ranks import (
     tier_image_url,
 )
 from .utils import as_list, now_ist, today_ist
+from .display_icons import role_display, role_emoji
 
 
 def sort_key(p):
@@ -90,7 +91,7 @@ class ScoreboardView(discord.ui.View):
     def __init__(
         self, match_data, tracked_puuid, riot_id, tier, rank, lp, old_lp, new_lp,
         *, lp_status="unavailable", outcome=None, story=None, spotlights=None,
-        remember=None, namespace=None, timeout=300
+        remember=None, namespace=None, timeout=300, profile_icon_url=None
     ):
         super().__init__(timeout=timeout)
         self.lp_status = lp_status
@@ -98,6 +99,7 @@ class ScoreboardView(discord.ui.View):
         self.story = story
         self.spotlights = spotlights
         self.remember = remember
+        self.profile_icon_url = profile_icon_url
         if namespace:
             self.delivery_marker = namespace + ":"
             for child in self.children:
@@ -180,12 +182,14 @@ class ScoreboardView(discord.ui.View):
             )
 
         e = discord.Embed(color=color, timestamp=now_ist())
-        e.set_author(name=self.riot_id, icon_url=tier_image_url(self.tier))
+        e.set_author(name=self.riot_id, **({"icon_url": self.profile_icon_url} if self.profile_icon_url else {}))
         position = p.get("position")
         title_champ = p["championName"]
         if position:
             title_champ = f"{title_champ} ({position})"
         e.description = f"**Ranked Solo/Duo** · `{duration_str(self.duration)}`\n{lp_line.rstrip()}"
+        if position and role_emoji(position):
+            e.description += f"\n{role_display(position)}"
         if lp_diff is None:
             status = "LP update pending" if self.lp_status == "pending" else "LP change not recorded"
             e.description += f"\n-# {status}"
@@ -337,7 +341,7 @@ class ScoreboardView(discord.ui.View):
             color=color,
             timestamp=now_ist(),
         )
-        e.set_author(name=self.riot_id, icon_url=tier_image_url(self.tier))
+        e.set_author(name=self.riot_id, **({"icon_url": self.profile_icon_url} if self.profile_icon_url else {}))
         champ_icon = champion_icon_url(self.participant.get("championId"))
         if champ_icon:
             e.set_thumbnail(url=champ_icon)
@@ -410,7 +414,7 @@ class ScoreboardView(discord.ui.View):
             color=0xFEE75C,
             timestamp=now_ist(),
         )
-        e.set_author(name=self.riot_id, icon_url=tier_image_url(self.tier))
+        e.set_author(name=self.riot_id, **({"icon_url": self.profile_icon_url} if self.profile_icon_url else {}))
         champ_icon = champion_icon_url(self.participant.get("championId"))
         if champ_icon:
             e.set_thumbnail(url=champ_icon)

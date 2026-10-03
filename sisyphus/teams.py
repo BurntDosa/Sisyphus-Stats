@@ -12,6 +12,8 @@ from discord import ui
 
 from .balance import TIERS, ROLES, ROLE_LABELS, balance
 from .team_roster import Roster, refresh_ranks
+from .display_icons import role_display, role_emoji
+from .ranks import tier_emoji
 
 SESSIONS = {}
 
@@ -58,7 +60,7 @@ class RosterModal(OwnedModal):
         self.add_item(ui.Label(text='Add server members', description='Linked accounts use Solo/Duo tiers; others need estimates.', component=self.users))
         self.extra = ui.TextInput(required=False, max_length=1000, placeholder='Alex=Gold, Silver, @mention, GameName#TAG, 2=Platinum')
         self.add_item(ui.Label(text='Guests, tracked Riot IDs, or tier overrides', component=self.extra))
-        self.omit = ui.Select(options=[discord.SelectOption(label=ROLE_LABELS[r],value=r,default=r==parent.omitted) for r in ROLES])
+        self.omit = ui.Select(options=[discord.SelectOption(label=ROLE_LABELS[r],emoji=role_emoji(r),value=r,default=r==parent.omitted) for r in ROLES])
         self.add_item(ui.Label(text='Omitted lane · used only for 4v4', component=self.omit))
 
     async def on_submit(self, interaction):
@@ -102,11 +104,11 @@ class PlayerModal(OwnedModal):
         self.identity = parent.selected
         e = next(e for e in parent.entries if e.identity==self.identity)
         if kind == 'tier':
-            self.tier = ui.Select(options=[discord.SelectOption(label=t.title(),value=t,default=t==e.tier) for t in TIERS])
+            self.tier = ui.Select(options=[discord.SelectOption(label=t.title(),emoji=tier_emoji(t),value=t,default=t==e.tier) for t in TIERS])
             self.add_item(ui.Label(text=f'{e.name} · estimated tier'[:45],component=self.tier))
         else:
-            self.primary = ui.Select(options=[discord.SelectOption(label='Flexible',value='flexible',default=not e.roles)]+[discord.SelectOption(label=ROLE_LABELS[r],value=r,default=bool(e.roles) and e.roles[0]==r) for r in ROLES])
-            self.secondary = ui.Select(options=[discord.SelectOption(label='None',value='none',default=len(e.roles)<2)]+[discord.SelectOption(label=ROLE_LABELS[r],value=r,default=len(e.roles)>1 and e.roles[1]==r) for r in ROLES])
+            self.primary = ui.Select(options=[discord.SelectOption(label='Flexible',value='flexible',default=not e.roles)]+[discord.SelectOption(label=ROLE_LABELS[r],emoji=role_emoji(r),value=r,default=bool(e.roles) and e.roles[0]==r) for r in ROLES])
+            self.secondary = ui.Select(options=[discord.SelectOption(label='None',value='none',default=len(e.roles)<2)]+[discord.SelectOption(label=ROLE_LABELS[r],emoji=role_emoji(r),value=r,default=len(e.roles)>1 and e.roles[1]==r) for r in ROLES])
             self.add_item(ui.Label(text='Primary lane',component=self.primary))
             self.add_item(ui.Label(text='Secondary lane',component=self.secondary))
 
@@ -246,7 +248,7 @@ class TeamsView(ui.View):
         split=self.splits[self.index]
         teams=(split.team_b,split.team_a) if self.flipped else (split.team_a,split.team_b)
         return [discord.Embed(title=f'Team {i+1}',color=color,
-                    description='\n'.join(f'**{clean(slot.player.label)}** — {ROLE_LABELS[slot.role]}' for slot in slots))
+                    description='\n'.join(f'**{clean(slot.player.label)}** — {role_display(slot.role)}' for slot in slots))
                 for i,(slots,color) in enumerate(zip(teams,(0x5865F2,0xED4245)))]
 
     def embed(self):
@@ -265,7 +267,7 @@ class TeamsView(ui.View):
             if self.delivery_pending: e.description='Delivery is being verified. This setup is frozen.'
         elif self.stage=='player':
             x=next(x for x in self.entries if x.identity==self.selected)
-            e.description=f'**{clean(x.name)}**\nTier: {x.tier.title() if x.tier else "Estimate needed"}\n{x.source}\nLanes: '+(' / '.join(ROLE_LABELS[r] for r in x.roles) or 'Flexible')
+            e.description=f'**{clean(x.name)}**\nTier: {(tier_emoji(x.tier)+" "+x.tier.title()) if x.tier else "Estimate needed"}\n{x.source}\nLanes: '+(' / '.join(role_display(r) for r in x.roles) or 'Flexible')
         elif self.stage=='exceptions':
             e.description='Choose a player to confirm a saved tier or enter an estimate.\n\n'+'\n'.join(
                 f'**{clean(x.name)}** — {"Confirm saved tier" if x.tier else "Estimate needed"}' for x in self.rank_exceptions())
@@ -281,7 +283,7 @@ class TeamsView(ui.View):
             if self.stage=='review' and self.rank_exceptions():
                 count=len(self.rank_exceptions());e.description+=f' · {count} player'+('s need' if count!=1 else ' needs')+' a tier check'
             if self.stage=='roster': e.description+=f' · Page {self.page+1}/{max(1,(len(self.candidates)+9)//10)}'
-            lines=[f'**{clean(x.name)}** — '+(' / '.join(ROLE_LABELS[r] for r in x.roles) or 'Flexible') for i,x in enumerate(self.entries)]
+            lines=[f'**{clean(x.name)}** — '+(' / '.join(role_display(r) for r in x.roles) or 'Flexible') for i,x in enumerate(self.entries)]
             for offset in range(0,max(1,len(lines)),5):
                 e.add_field(name='Players' if offset==0 else 'Players · continued',value='\n'.join(lines[offset:offset+5]) or 'No players selected yet.',inline=False)
         return e

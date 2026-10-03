@@ -29,13 +29,15 @@ async def build_recap_view(snapshot, session, *, automatic=False):
         view = SharedRecapView(snapshot, remember=remember_own_result)
     else:
         from .views import ScoreboardView
+        from .summoner_icons import get_profile_icon_url
 
         m = snapshot["members"][0]
         view = ScoreboardView(snapshot["match"], m["puuid"], m["riot_id"],
             m.get("tier") or "UNRANKED", m.get("rank") or "", m.get("lp"),
             m.get("old_lp") if m.get("lp_status") == "known" else None,
             m.get("total_lp") if m.get("lp_status") == "known" else None,
-            lp_status=m.get("lp_status", "unavailable"))
+            lp_status=m.get("lp_status", "unavailable"),
+            profile_icon_url=await get_profile_icon_url(session, m["riot_id"]))
         view.delivery_marker = f"recap:{recap_digest(snapshot['key'])}:"
         for child in view.children:
             child.custom_id = view.delivery_marker + str(child.custom_id)

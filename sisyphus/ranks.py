@@ -1,6 +1,8 @@
 """LoL rank tables, division math, tier display helpers."""
 from __future__ import annotations
 
+from .display_icons import rank_emoji, rank_image_url
+
 TIER_EMOJI = {
     "IRON": "⬛",
     "BRONZE": "🥉",
@@ -115,12 +117,16 @@ def tier_emoji(tier):
         "CHALLENGER": "🏆",
         "UNRANKED": "❓",
     }
-    return icons.get(tier, "❓")
+    normalized = str(tier or "UNRANKED").upper()
+    return rank_emoji(normalized) or icons.get(normalized, "❓")
 
 
 def tier_image_url(tier):
     if isinstance(tier, int):
         tier = TIER_BY_INDEX.get(tier, "UNRANKED")
+    custom = rank_image_url(tier)
+    if custom:
+        return custom
     if not tier or tier == "UNRANKED":
         return "https://opgg-static.akamaized.net/images/medals_new/default.png"
     return f"https://opgg-static.akamaized.net/images/medals_new/{tier.lower()}.png"

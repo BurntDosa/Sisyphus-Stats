@@ -80,6 +80,13 @@ async def on_ready():
     print(f"📡 Data source: OP.GG MCP ({OPGG_REGION})")
     from .health import discord_latency_ms, mark_bot_online, mark_discord
 
+    from .display_icons import set_emoji_validator
+
+    def usable_emoji(emoji_id: int) -> bool:
+        emoji = bot.get_emoji(emoji_id)
+        return emoji is not None and emoji.is_usable()
+
+    set_emoji_validator(usable_emoji)
     mark_bot_online()
     latency_ms = discord_latency_ms(bot.latency)
     mark_discord(True, latency_ms)

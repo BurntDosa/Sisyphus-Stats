@@ -96,7 +96,7 @@ Most commands work as slash commands and with the `!` prefix.
 | Start | `/help`, `/status`, `/dashboard` |
 | Tracking | `/track`, `/untrack`, `/list`, `/link`, `/unlink`, `/whoami` |
 | Matches | `/recap`, `/stats`, `/profile`, `/dailyreport`, `/report` |
-| Squad | `/queueup`, `/queueboard`, `/queueclear`, `/weeklyrecap`, `/monthlyrecap`, `/halloffame`, `/squadgoal`, `/rivalry` |
+| Squad | `/teams`, `/queueup`, `/queueboard`, `/queueclear`, `/weeklyrecap`, `/monthlyrecap`, `/halloffame`, `/squadgoal`, `/rivalry` |
 | Points | `/markets`, `/bet`, `/editbet`, `/cancelbet`, `/mybets`, `/wallet`, `/leaderboard`, `/bprofile`, `/insurance` |
 | Admin | `/marketopen`, `/marketstatus`, `/marketbets`, `/settlebet`, `/voidbet`, `/refund`, `/audit` |
 
@@ -142,3 +142,16 @@ Setup expires after ten minutes. No League-client access is needed.
 Team-balancing foundation contributed by
 [Saarthak-Khandelwal](https://github.com/Saarthak-Khandelwal) in
 [the original PR](https://github.com/BurntDosa/Sisyphus-Stats/pull/1).
+
+### Custom rank and role emojis
+
+Set private `RANK_EMOJIS` and `ROLE_EMOJIS` JSON mappings in `.env`. Keys are
+rank tiers (`IRON` through `CHALLENGER`) or roles (`TOP`, `JUNGLE`, `MID`,
+`BOTTOM`, `SUPPORT`); values use Discord custom emoji syntax. The bot must
+have access to the source server and permission to use external emojis in
+destination channels. Recaps and reports share the rank badges; `/teams`
+shows role icons and keeps tiers hidden outside player details. Missing or
+unusable configured emojis fall back to the standard symbols or role text.
+
+Solo recap headers show the player's current Riot profile icon when available;
+the rank badge stays beside LP. Profile-icon failures do not block recaps.

@@ -47,14 +47,14 @@ def main() -> None:
         assert gold.color.value == 0xFFD700, "profile accent should follow current Gold LP"
         assert "GOLD 4" in gold.description, "current Gold rank should be visible"
         assert "Peak:** `GOLD 4" in gold.description, "peak should include current LP"
-        assert "gold.png" in str(gold.author.icon_url), "badge should follow current Gold LP"
+        assert str(gold.author.icon_url) == ranks.tier_image_url("GOLD"), "badge should follow current Gold LP"
 
         apex = profiles.player_profile_view("AntiChungleVenom#SG2").overview_embed()
         assert "GRANDMASTER #1027 — 419 LP" in apex.description
         assert "GRANDMASTER 1" not in apex.description
         assert "Peak:** `GRANDMASTER — 419 LP`" in apex.description
         assert apex.color.value == 0xFF6D00
-        assert "grandmaster.png" in str(apex.author.icon_url)
+        assert str(apex.author.icon_url) == ranks.tier_image_url("GRANDMASTER")
 
         missing = profiles.player_profile_view("MissingCurrent#TEST").overview_embed()
         assert missing.color.value == 0xC0C0C0, "missing current LP should use historical badge"
